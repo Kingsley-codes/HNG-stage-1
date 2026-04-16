@@ -7,7 +7,7 @@ import { fetchGender, fetchAge, fetchNationality } from "./apiClients.js";
 import { Profile, ProfilesListResponse } from "./types.js";
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = 3000;
 
 app.use(cors({ origin: "*" }));
 app.use(express.json());
@@ -207,6 +207,20 @@ app.delete("/api/profiles/:id", (req: Request, res: Response) => {
       message: "Internal server error",
     });
   }
+});
+
+// Root endpoint for testing
+app.get("/", (req: Request, res: Response) => {
+  res.status(200).json({
+    status: "success",
+    message: "Profile Intelligence Service API is running",
+    endpoints: [
+      "POST /api/profiles",
+      "GET /api/profiles/:id",
+      "GET /api/profiles",
+      "DELETE /api/profiles/:id",
+    ],
+  });
 });
 
 // Health check endpoint
