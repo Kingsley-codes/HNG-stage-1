@@ -1,3 +1,4 @@
+// src/types.ts
 export interface GenderizeResponse {
   name: string;
   gender: string | null;
@@ -26,32 +27,28 @@ export interface Profile {
   gender_probability: number;
   sample_size: number;
   age: number;
-  age_group: "child" | "teenager" | "adult" | "senior";
+  age_group: string;
   country_id: string;
   country_probability: number;
   created_at: string;
 }
 
-export interface CreateProfileRequest {
-  name: string;
-}
-
-export interface ApiResponse<T> {
+export interface ProfileResponse {
   status: string;
-  data?: T;
+  data?: Profile;
   message?: string;
   count?: number;
 }
 
-export interface ErrorResponse {
+export interface ProfilesListResponse {
   status: string;
-  message: string;
-}
-
-export type AgeGroup = "child" | "teenager" | "adult" | "senior";
-
-export interface ProfileFilter {
-  gender?: string;
-  country_id?: string;
-  age_group?: string;
+  count: number;
+  data: Array<{
+    id: string;
+    name: string;
+    gender: string;
+    age: number;
+    age_group: string;
+    country_id: string;
+  }>;
 }
