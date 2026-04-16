@@ -7,7 +7,7 @@ import { fetchGender, fetchAge, fetchNationality } from "./apiClients.js";
 import { Profile, ProfilesListResponse } from "./types.js";
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = 3000;
 
 app.use(cors({ origin: "*" }));
 app.use(express.json());
