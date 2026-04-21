@@ -29,6 +29,7 @@ export interface Profile {
   age: number;
   age_group: string;
   country_id: string;
+  country_name: string;
   country_probability: number;
   created_at: string;
 }
@@ -37,12 +38,13 @@ export interface ProfileResponse {
   status: string;
   data?: Profile;
   message?: string;
-  count?: number;
 }
 
 export interface ProfilesListResponse {
   status: string;
-  count: number;
+  page: number;
+  limit: number;
+  total: number;
   data: Array<{
     id: string;
     name: string;
@@ -50,5 +52,24 @@ export interface ProfilesListResponse {
     age: number;
     age_group: string;
     country_id: string;
+    country_name: string;
   }>;
+}
+
+export interface FilterOptions {
+  gender?: string;
+  age_group?: string;
+  country_id?: string;
+  min_age?: number;
+  max_age?: number;
+  min_gender_probability?: number;
+  min_country_probability?: number;
+  sort_by?: "age" | "created_at" | "gender_probability";
+  order?: "asc" | "desc";
+  page?: number;
+  limit?: number;
+}
+
+export interface CountryMapping {
+  [key: string]: string;
 }
