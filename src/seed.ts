@@ -1,6 +1,5 @@
 // src/seed.ts
 import { db } from "./database.js";
-import { fetchGender, fetchAge, fetchNationality } from "./apiClients.js";
 import { v7 as uuidv7 } from "uuid";
 import fs from "fs";
 
@@ -13,28 +12,39 @@ function getAgeGroup(age: number): string {
 
 interface SeedProfile {
   name: string;
+  gender: string;
+  gender_probability: number;
+  age: number;
+  age_group: string;
+  country_id: string;
+  country_name: string;
+  country_probability: number;
 }
 
 async function seedDatabase() {
-  console.log("Starting database seed...");
+  console.log("🌱 Starting database seed...");
+  console.log("=====================================\n");
 
   // Check if already seeded
-  if (db.getProfileCount() > 0) {
-    console.log(
-      `Database already has ${db.getProfileCount()} profiles. Skipping seed.`,
-    );
+  const existingCount = db.getProfileCount();
+  if (existingCount > 0) {
+    console.log(`📊 Database already has ${existingCount} profiles.`);
+    console.log("💡 To re-seed, run: npm run seed:force");
     return;
   }
 
   try {
-    // Read the seed data file
-    const seedData = JSON.parse(fs.readFileSync("./seed-data.json", "utf8"));
+    // Read the seed data file - NOTE: Make sure filename matches!
+    const seedData = JSON.parse(
+      fs.readFileSync("./seed_profiles.json", "utf8"),
+    );
     const profiles: SeedProfile[] = seedData.profiles || [];
 
-    console.log(`Found ${profiles.length} profiles to seed...`);
+    console.log(`📋 Found ${profiles.length} profiles to seed...`);
+    console.log("⏳ Seeding in progress...\n");
 
     let successCount = 0;
-    let failCount = 0;
+    let skipCount = 0;
 
     for (let i = 0; i < profiles.length; i++) {
       const profile = profiles[i];
@@ -43,59 +53,52 @@ async function seedDatabase() {
       // Check if already exists
       const existing = db.getProfileByName(name);
       if (existing) {
-        console.log(`Profile ${name} already exists, skipping...`);
+        skipCount++;
         continue;
       }
 
       try {
-        // Fetch data from APIs
-        const [genderData, ageData, nationalityData] = await Promise.all([
-          fetchGender(name),
-          fetchAge(name),
-          fetchNationality(name),
-        ]);
-
-        // Get top country
-        const topCountry = nationalityData.country.reduce((prev, current) =>
-          prev.probability > current.probability ? prev : current,
-        );
-
-        // Create profile
+        // Use the data from the JSON file directly - NO API CALLS NEEDED!
         const newProfile = {
           id: uuidv7(),
-          name: name,
-          gender: genderData.gender!,
-          gender_probability: genderData.probability,
-          sample_size: genderData.count,
-          age: ageData.age!,
-          age_group: getAgeGroup(ageData.age!),
-          country_id: topCountry.country_id,
-          country_name: db.getCountryName(topCountry.country_id),
-          country_probability: topCountry.probability,
+          name: profile.name,
+          gender: profile.gender,
+          gender_probability: profile.gender_probability,
+          sample_size: 1000, // Default sample size for seeded data
+          age: profile.age,
+          age_group: profile.age_group,
+          country_id: profile.country_id,
+          country_name: db.getCountryName(profile.country_id),
+          country_probability: profile.country_probability,
           created_at: new Date().toISOString(),
         };
 
         db.saveProfile(newProfile);
         successCount++;
 
-        if ((i + 1) % 100 === 0) {
-          console.log(`Seeded ${i + 1}/${profiles.length} profiles...`);
+        // Show progress every 100 records
+        if (successCount % 100 === 0) {
+          console.log(
+            `📊 Progress: ${successCount}/${profiles.length} profiles seeded`,
+          );
         }
-
-        // Small delay to avoid rate limiting
-        await new Promise((resolve) => setTimeout(resolve, 100));
       } catch (error) {
-        console.error(`Failed to seed ${name}:`, error);
-        failCount++;
+        console.error(`❌ Failed to seed ${profile.name}:`, error);
       }
     }
 
-    console.log(`\nSeeding complete!`);
-    console.log(`✅ Success: ${successCount}`);
-    console.log(`❌ Failed: ${failCount}`);
-    console.log(`📊 Total profiles in DB: ${db.getProfileCount()}`);
+    console.log("\n✅ Seeding Complete!");
+    console.log(`📈 Successfully seeded: ${successCount}`);
+    console.log(`⏭️  Skipped (already exist): ${skipCount}`);
+    console.log(`💾 Total profiles in DB: ${db.getProfileCount()}`);
   } catch (error) {
-    console.error("Error seeding database:", error);
+    console.error("❌ Error seeding database:", error);
+    console.log("\n💡 Troubleshooting tips:");
+    console.log(
+      "   1. Make sure 'seed_profiles.json' exists in the project root",
+    );
+    console.log("   2. Check that the JSON file has a 'profiles' array");
+    console.log("   3. Verify the JSON file is valid (no syntax errors)");
   }
 }
 
