@@ -1,4 +1,5 @@
-// src/nlpParser.ts - Complete rewrite
+// src/nlpParser.ts - COMPLETE REWRITE
+
 import { FilterOptions } from "./types.js";
 
 interface ParsedQuery {
@@ -7,94 +8,18 @@ interface ParsedQuery {
   error?: string;
 }
 
-const AGE_RANGES = {
-  young: { min: 16, max: 24 },
-};
-
-const GENDER_MAPPINGS: { [key: string]: string } = {
-  male: "male",
-  males: "male",
-  man: "male",
-  men: "male",
-  boy: "male",
-  boys: "male",
-  female: "female",
-  females: "female",
-  woman: "female",
-  women: "female",
-  girl: "female",
-  girls: "female",
-};
-
-const AGE_GROUP_MAPPINGS: { [key: string]: string } = {
-  child: "child",
-  children: "child",
-  kid: "child",
-  kids: "child",
-  teenager: "teenager",
-  teenagers: "teenager",
-  teen: "teenager",
-  teens: "teenager",
-  adult: "adult",
-  adults: "adult",
-  senior: "senior",
-  seniors: "senior",
-  elderly: "senior",
-  aged: "senior",
-};
-
+// Country mappings (common names to ISO codes)
 const COUNTRY_MAPPINGS: { [key: string]: string } = {
   nigeria: "NG",
   nigerian: "NG",
-  naija: "NG",
   kenya: "KE",
   kenyan: "KE",
   "south africa": "ZA",
-  southafrica: "ZA",
+  "south african": "ZA",
   angola: "AO",
   angolan: "AO",
   ghana: "GH",
   ghanaian: "GH",
-  senegal: "SN",
-  senegalese: "SN",
-  ethiopia: "ET",
-  ethiopian: "ET",
-  uganda: "UG",
-  ugandan: "UG",
-  tanzania: "TZ",
-  tanzanian: "TZ",
-  rwanda: "RW",
-  rwandan: "RW",
-  zambia: "ZM",
-  zambian: "ZM",
-  zimbabwe: "ZW",
-  zimbabwean: "ZW",
-  mozambique: "MZ",
-  mozambican: "MZ",
-  congo: "CD",
-  congolese: "CD",
-  algeria: "DZ",
-  algerian: "DZ",
-  morocco: "MA",
-  moroccan: "MA",
-  egypt: "EG",
-  egyptian: "EG",
-  tunisia: "TN",
-  tunisian: "TN",
-  sudan: "SD",
-  sudanese: "SD",
-  somalia: "SO",
-  somali: "SO",
-  malawi: "MW",
-  malawian: "MW",
-  botswana: "BW",
-  batswana: "BW",
-  namibia: "NA",
-  namibian: "NA",
-  lesotho: "LS",
-  basotho: "LS",
-  eswatini: "SZ",
-  swazi: "SZ",
 };
 
 export function parseNaturalLanguage(query: string): ParsedQuery {
@@ -105,60 +30,143 @@ export function parseNaturalLanguage(query: string): ParsedQuery {
   const normalizedQuery = query.toLowerCase().trim();
   const filters: Partial<FilterOptions> = {};
 
-  // Extract gender
-  for (const [word, gender] of Object.entries(GENDER_MAPPINGS)) {
-    if (normalizedQuery.includes(word)) {
-      filters.gender = gender;
-      break;
-    }
-  }
-
-  // Extract age group
-  for (const [word, ageGroup] of Object.entries(AGE_GROUP_MAPPINGS)) {
-    if (normalizedQuery.includes(word)) {
-      filters.age_group = ageGroup;
-      break;
-    }
-  }
-
-  // Extract country
-  for (const [word, countryId] of Object.entries(COUNTRY_MAPPINGS)) {
-    if (normalizedQuery.includes(word)) {
-      filters.country_id = countryId;
-      break;
-    }
-  }
-
-  // Handle "young" age range
-  if (normalizedQuery.includes("young")) {
-    filters.min_age = AGE_RANGES.young.min;
-    filters.max_age = AGE_RANGES.young.max;
-  }
-
-  // Handle age comparisons (above X, over X, below X, under X)
-  const aboveMatch = normalizedQuery.match(/(?:above|over)\s+(\d+)/);
-  if (aboveMatch) {
-    filters.min_age = parseInt(aboveMatch[1]);
-  }
-
-  const belowMatch = normalizedQuery.match(/(?:below|under)\s+(\d+)/);
-  if (belowMatch) {
-    filters.max_age = parseInt(belowMatch[1]);
-  }
-
-  // Handle "male and female" or "both genders" - remove gender filter
-  if (
-    normalizedQuery.includes("male and female") ||
-    normalizedQuery.includes("male & female") ||
-    normalizedQuery.includes("both genders")
-  ) {
-    delete filters.gender;
-  }
-
-  // Check if we found any valid filters
-  if (Object.keys(filters).length > 0) {
+  // ============================================
+  // 1. CHECK FOR "young males" pattern
+  // ============================================
+  if (normalizedQuery.includes("young males")) {
+    filters.gender = "male";
+    filters.min_age = 16;
+    filters.max_age = 24;
     return { filters, isValid: true };
   }
 
+  if (
+    normalizedQuery.includes("young females") ||
+    normalizedQuery.includes("young girls")
+  ) {
+    filters.gender = "female";
+    filters.min_age = 16;
+    filters.max_age = 24;
+    return { filters, isValid: true };
+  }
+
+  // ============================================
+  // 2. CHECK FOR "females above 30" pattern
+  // ============================================
+  const aboveMatch = normalizedQuery.match(
+    /(males|females|men|women|people)\s+above\s+(\d+)/,
+  );
+  if (aboveMatch) {
+    const genderWord = aboveMatch[1];
+    const age = parseInt(aboveMatch[2]);
+
+    if (genderWord === "males" || genderWord === "men") {
+      filters.gender = "male";
+    } else if (genderWord === "females" || genderWord === "women") {
+      filters.gender = "female";
+    }
+
+    filters.min_age = age;
+    return { filters, isValid: true };
+  }
+
+  // ============================================
+  // 3. CHECK FOR "people from nigeria" pattern
+  // ============================================
+  const fromMatch = normalizedQuery.match(/people from (\w+)/);
+  if (fromMatch) {
+    const country = fromMatch[1];
+    if (COUNTRY_MAPPINGS[country]) {
+      filters.country_id = COUNTRY_MAPPINGS[country];
+      return { filters, isValid: true };
+    }
+  }
+
+  // ============================================
+  // 4. CHECK FOR "adult males from kenya" pattern
+  // ============================================
+  const adultMatch = normalizedQuery.match(
+    /(adult|teenager|senior)\s+(males|females)\s+from\s+(\w+)/,
+  );
+  if (adultMatch) {
+    const ageGroup = adultMatch[1];
+    const gender = adultMatch[2];
+    const country = adultMatch[3];
+
+    filters.age_group = ageGroup;
+    filters.gender = gender === "males" ? "male" : "female";
+
+    if (COUNTRY_MAPPINGS[country]) {
+      filters.country_id = COUNTRY_MAPPINGS[country];
+    }
+
+    return { filters, isValid: true };
+  }
+
+  // ============================================
+  // 5. CHECK FOR "male and female teenagers above 17" pattern
+  // ============================================
+  const teenMatch = normalizedQuery.match(
+    /(?:male and female|both genders?)\s+(teenagers|teens)\s+above\s+(\d+)/,
+  );
+  if (teenMatch) {
+    const ageGroup = teenMatch[1];
+    const age = parseInt(teenMatch[2]);
+
+    filters.age_group = ageGroup === "teenagers" ? "teenager" : ageGroup;
+    filters.min_age = age;
+    // Don't set gender - both genders
+    delete filters.gender;
+
+    return { filters, isValid: true };
+  }
+
+  // ============================================
+  // 6. Simple gender only
+  // ============================================
+  if (normalizedQuery === "males" || normalizedQuery === "male") {
+    filters.gender = "male";
+    return { filters, isValid: true };
+  }
+
+  if (normalizedQuery === "females" || normalizedQuery === "female") {
+    filters.gender = "female";
+    return { filters, isValid: true };
+  }
+
+  // ============================================
+  // 7. Simple country only
+  // ============================================
+  for (const [countryName, countryCode] of Object.entries(COUNTRY_MAPPINGS)) {
+    if (
+      normalizedQuery.includes(`from ${countryName}`) ||
+      normalizedQuery === countryName
+    ) {
+      filters.country_id = countryCode;
+      return { filters, isValid: true };
+    }
+  }
+
+  // ============================================
+  // 8. Age group only
+  // ============================================
+  if (normalizedQuery === "teenagers" || normalizedQuery === "teens") {
+    filters.age_group = "teenager";
+    return { filters, isValid: true };
+  }
+
+  if (normalizedQuery === "adults") {
+    filters.age_group = "adult";
+    return { filters, isValid: true };
+  }
+
+  if (normalizedQuery === "seniors") {
+    filters.age_group = "senior";
+    return { filters, isValid: true };
+  }
+
+  // ============================================
+  // If nothing matched
+  // ============================================
   return { filters: {}, isValid: false, error: "Unable to interpret query" };
 }

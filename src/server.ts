@@ -72,7 +72,7 @@ function applyFilters(profiles: Profile[], filters: FilterOptions): Profile[] {
   return filtered;
 }
 
-// src/server.ts - Fix sorting function
+// Complete applySorting function fix
 function applySorting(
   profiles: Profile[],
   sortBy: string,
@@ -80,10 +80,11 @@ function applySorting(
 ): Profile[] {
   const sorted = [...profiles];
 
-  // Ensure sortBy is valid
+  // Validate sortBy - must be one of the allowed values
   const validSortFields = ["age", "created_at", "gender_probability"];
   if (!validSortFields.includes(sortBy)) {
-    sortBy = "created_at"; // default
+    // Don't change sortBy here - let the validator handle it
+    return sorted;
   }
 
   sorted.sort((a, b) => {
@@ -91,18 +92,17 @@ function applySorting(
 
     switch (sortBy) {
       case "age":
-        comparison = (a.age || 0) - (b.age || 0);
+        comparison = a.age - b.age;
         break;
       case "created_at":
+        // Ensure both dates are valid
         const dateA = new Date(a.created_at).getTime();
         const dateB = new Date(b.created_at).getTime();
         comparison = dateA - dateB;
         break;
       case "gender_probability":
-        comparison = (a.gender_probability || 0) - (b.gender_probability || 0);
+        comparison = a.gender_probability - b.gender_probability;
         break;
-      default:
-        comparison = 0;
     }
 
     return order === "asc" ? comparison : -comparison;
