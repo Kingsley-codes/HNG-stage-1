@@ -72,6 +72,7 @@ function applyFilters(profiles: Profile[], filters: FilterOptions): Profile[] {
   return filtered;
 }
 
+// src/server.ts - Fix sorting function
 function applySorting(
   profiles: Profile[],
   sortBy: string,
@@ -79,19 +80,26 @@ function applySorting(
 ): Profile[] {
   const sorted = [...profiles];
 
+  // Ensure sortBy is valid
+  const validSortFields = ["age", "created_at", "gender_probability"];
+  if (!validSortFields.includes(sortBy)) {
+    sortBy = "created_at"; // default
+  }
+
   sorted.sort((a, b) => {
     let comparison = 0;
 
     switch (sortBy) {
       case "age":
-        comparison = a.age - b.age;
+        comparison = (a.age || 0) - (b.age || 0);
         break;
       case "created_at":
-        comparison =
-          new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+        const dateA = new Date(a.created_at).getTime();
+        const dateB = new Date(b.created_at).getTime();
+        comparison = dateA - dateB;
         break;
       case "gender_probability":
-        comparison = a.gender_probability - b.gender_probability;
+        comparison = (a.gender_probability || 0) - (b.gender_probability || 0);
         break;
       default:
         comparison = 0;
@@ -301,6 +309,15 @@ app.get("/api/profiles", (req: Request, res: Response) => {
     let order: "asc" | "desc" =
       (req.query.order as string) === "desc" ? "desc" : "asc";
 
+    // Validate sortBy
+    const validSortFields = ["age", "created_at", "gender_probability"];
+    if (!validSortFields.includes(sortBy)) {
+      return res.status(422).json({
+        status: "error",
+        message: "Invalid query parameters",
+      });
+    }
+
     if (!["age", "created_at", "gender_probability"].includes(sortBy)) {
       sortBy = "created_at";
     }
@@ -364,8 +381,6 @@ app.get("/api/profiles/search", (req: Request, res: Response) => {
     }
 
     let profiles = db.getAllProfiles();
-
-    // Apply parsed filters
     let filteredProfiles = applyFilters(profiles, parsed.filters);
 
     // Apply pagination
@@ -377,9 +392,13 @@ app.get("/api/profiles/search", (req: Request, res: Response) => {
     if (limit > 50) limit = 50;
 
     const total = filteredProfiles.length;
-    const paginatedProfiles = applyPagination(filteredProfiles, page, limit);
+    const startIndex = (page - 1) * limit;
+    const paginatedProfiles = filteredProfiles.slice(
+      startIndex,
+      startIndex + limit,
+    );
 
-    const response: ProfilesListResponse = {
+    const response = {
       status: "success",
       page: page,
       limit: limit,
@@ -404,7 +423,6 @@ app.get("/api/profiles/search", (req: Request, res: Response) => {
     });
   }
 });
-
 // DELETE /api/profiles/:id
 app.delete("/api/profiles/:id", (req: Request, res: Response) => {
   try {

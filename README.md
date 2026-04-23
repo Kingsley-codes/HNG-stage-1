@@ -73,8 +73,8 @@ DELETE /api/profiles/:id
 ### Installation
 
 1. **Clone the repository**
-   git clone <your-repo-url>
-   cd intelligence-query-engine
+   git clone https://github.com/Kingsley-codes/HNG-stage-1.git
+   cd HNG-stage-1
 
 2. **Install dependencies**
    npm install
@@ -102,25 +102,25 @@ bash
 
 # Create a profile
 
-curl -X POST https://yourapp.domain.app/api/profiles \
+curl -X POST https://hng-stage-1-production-db6d.up.railway.app/api/profiles \
  -H "Content-Type: application/json" \
  -d '{"name":"John Doe"}'
 
 # Get all Nigerian males aged 25+
 
-curl "https://yourapp.domain.app/api/profiles?gender=male&country_id=NG&min_age=25"
+curl "https://hng-stage-1-production-db6d.up.railway.app/api/profiles?gender=male&country_id=NG&min_age=25"
 
 # Natural language search
 
-curl "https://yourapp.domain.app/api/profiles/search?q=young females from kenya"
+curl "https://hng-stage-1-production-db6d.up.railway.app/api/profiles/search?q=young females from kenya"
 
 # Get profiles sorted by age
 
-curl "https://yourapp.domain.app/api/profiles?sort_by=age&order=desc&limit=20"
+curl "https://hng-stage-1-production-db6d.up.railway.app/api/profiles?sort_by=age&order=desc&limit=20"
 
 # Pagination
 
-curl "https://yourapp.domain.app/api/profiles?page=2&limit=10"
+curl "https://hng-stage-1-production-db6d.up.railway.app/api/profiles?page=2&limit=10"
 
 # Response Formats
 

@@ -1,4 +1,4 @@
-// src/nlpParser.ts
+// src/nlpParser.ts - Complete rewrite
 import { FilterOptions } from "./types.js";
 
 interface ParsedQuery {
@@ -7,14 +7,10 @@ interface ParsedQuery {
   error?: string;
 }
 
-// Age range mappings
-const AGE_RANGES: { [key: string]: { min: number; max: number } } = {
+const AGE_RANGES = {
   young: { min: 16, max: 24 },
-  old: { min: 60, max: 120 },
-  middle: { min: 40, max: 59 },
 };
 
-// Gender mappings
 const GENDER_MAPPINGS: { [key: string]: string } = {
   male: "male",
   males: "male",
@@ -30,7 +26,6 @@ const GENDER_MAPPINGS: { [key: string]: string } = {
   girls: "female",
 };
 
-// Age group mappings
 const AGE_GROUP_MAPPINGS: { [key: string]: string } = {
   child: "child",
   children: "child",
@@ -40,8 +35,6 @@ const AGE_GROUP_MAPPINGS: { [key: string]: string } = {
   teenagers: "teenager",
   teen: "teenager",
   teens: "teenager",
-  adolescent: "teenager",
-  adolescents: "teenager",
   adult: "adult",
   adults: "adult",
   senior: "senior",
@@ -50,29 +43,20 @@ const AGE_GROUP_MAPPINGS: { [key: string]: string } = {
   aged: "senior",
 };
 
-// Country mappings (common names to ISO codes)
 const COUNTRY_MAPPINGS: { [key: string]: string } = {
   nigeria: "NG",
   nigerian: "NG",
   naija: "NG",
-  benin: "BJ",
-  beninese: "BJ",
-  ghana: "GH",
-  ghanaian: "GH",
-  ivorycoast: "CI",
-  "cote d'ivoire": "CI",
-  senegal: "SN",
-  senegalese: "SN",
-  cameroon: "CM",
-  cameroonian: "CM",
   kenya: "KE",
   kenyan: "KE",
   "south africa": "ZA",
-  southafrican: "ZA",
+  southafrica: "ZA",
   angola: "AO",
   angolan: "AO",
-  mali: "ML",
-  malian: "ML",
+  ghana: "GH",
+  ghanaian: "GH",
+  senegal: "SN",
+  senegalese: "SN",
   ethiopia: "ET",
   ethiopian: "ET",
   uganda: "UG",
@@ -97,27 +81,21 @@ const COUNTRY_MAPPINGS: { [key: string]: string } = {
   egyptian: "EG",
   tunisia: "TN",
   tunisian: "TN",
-  libya: "LY",
-  libyan: "LY",
   sudan: "SD",
   sudanese: "SD",
   somalia: "SO",
   somali: "SO",
+  malawi: "MW",
+  malawian: "MW",
+  botswana: "BW",
+  batswana: "BW",
+  namibia: "NA",
+  namibian: "NA",
+  lesotho: "LS",
+  basotho: "LS",
+  eswatini: "SZ",
+  swazi: "SZ",
 };
-
-// Preposition mappings for queries
-const PREPOSITIONS = [
-  "from",
-  "in",
-  "of",
-  "above",
-  "below",
-  "over",
-  "under",
-  "and",
-  "&",
-  "plus",
-];
 
 export function parseNaturalLanguage(query: string): ParsedQuery {
   if (!query || query.trim().length === 0) {
@@ -125,117 +103,60 @@ export function parseNaturalLanguage(query: string): ParsedQuery {
   }
 
   const normalizedQuery = query.toLowerCase().trim();
-  const words = normalizedQuery.split(/\s+/);
-
   const filters: Partial<FilterOptions> = {};
 
-  // Track what we've found
-  let foundGender = false;
-  let foundAgeGroup = false;
-  let foundCountry = false;
-  let hasAgeRange = false;
-
-  // First pass: Look for country
-  for (let i = 0; i < words.length; i++) {
-    const word = words[i];
-    // Check if word is a country or followed by "from/in"
-    if (COUNTRY_MAPPINGS[word]) {
-      filters.country_id = COUNTRY_MAPPINGS[word];
-      foundCountry = true;
-      break;
-    }
-
-    // Handle "from X" or "in X" patterns
-    if ((word === "from" || word === "in") && i + 1 < words.length) {
-      const potentialCountry = words[i + 1];
-      if (COUNTRY_MAPPINGS[potentialCountry]) {
-        filters.country_id = COUNTRY_MAPPINGS[potentialCountry];
-        foundCountry = true;
-        break;
-      }
-    }
-  }
-
-  // Second pass: Look for gender
-  for (const word of words) {
-    if (GENDER_MAPPINGS[word]) {
-      filters.gender = GENDER_MAPPINGS[word];
-      foundGender = true;
+  // Extract gender
+  for (const [word, gender] of Object.entries(GENDER_MAPPINGS)) {
+    if (normalizedQuery.includes(word)) {
+      filters.gender = gender;
       break;
     }
   }
 
-  // Third pass: Look for age groups and age ranges
-  for (let i = 0; i < words.length; i++) {
-    const word = words[i];
-
-    // Check for age group
-    if (AGE_GROUP_MAPPINGS[word]) {
-      filters.age_group = AGE_GROUP_MAPPINGS[word];
-      foundAgeGroup = true;
-    }
-
-    // Handle "young" - special case for age range
-    if (word === "young") {
-      filters.min_age = AGE_RANGES.young.min;
-      filters.max_age = AGE_RANGES.young.max;
-      hasAgeRange = true;
-    }
-
-    if (word === "old" && !hasAgeRange) {
-      filters.min_age = AGE_RANGES.old.min;
-      filters.max_age = AGE_RANGES.old.max;
-      hasAgeRange = true;
-    }
-
-    // Handle "above X" or "over X"
-    if ((word === "above" || word === "over") && i + 1 < words.length) {
-      const ageNum = parseInt(words[i + 1]);
-      if (!isNaN(ageNum)) {
-        filters.min_age = ageNum;
-        hasAgeRange = true;
-      }
-    }
-
-    // Handle "below X" or "under X"
-    if ((word === "below" || word === "under") && i + 1 < words.length) {
-      const ageNum = parseInt(words[i + 1]);
-      if (!isNaN(ageNum)) {
-        filters.max_age = ageNum;
-        hasAgeRange = true;
-      }
-    }
-
-    // Handle "teenagers above X" - special case
-    if (
-      word === "teenagers" &&
-      i + 2 < words.length &&
-      words[i + 1] === "above"
-    ) {
-      const ageNum = parseInt(words[i + 2]);
-      if (!isNaN(ageNum)) {
-        filters.age_group = "teenager";
-        filters.min_age = ageNum;
-        foundAgeGroup = true;
-        hasAgeRange = true;
-      }
+  // Extract age group
+  for (const [word, ageGroup] of Object.entries(AGE_GROUP_MAPPINGS)) {
+    if (normalizedQuery.includes(word)) {
+      filters.age_group = ageGroup;
+      break;
     }
   }
 
-  // Handle "male and female" or similar combinations
+  // Extract country
+  for (const [word, countryId] of Object.entries(COUNTRY_MAPPINGS)) {
+    if (normalizedQuery.includes(word)) {
+      filters.country_id = countryId;
+      break;
+    }
+  }
+
+  // Handle "young" age range
+  if (normalizedQuery.includes("young")) {
+    filters.min_age = AGE_RANGES.young.min;
+    filters.max_age = AGE_RANGES.young.max;
+  }
+
+  // Handle age comparisons (above X, over X, below X, under X)
+  const aboveMatch = normalizedQuery.match(/(?:above|over)\s+(\d+)/);
+  if (aboveMatch) {
+    filters.min_age = parseInt(aboveMatch[1]);
+  }
+
+  const belowMatch = normalizedQuery.match(/(?:below|under)\s+(\d+)/);
+  if (belowMatch) {
+    filters.max_age = parseInt(belowMatch[1]);
+  }
+
+  // Handle "male and female" or "both genders" - remove gender filter
   if (
     normalizedQuery.includes("male and female") ||
     normalizedQuery.includes("male & female") ||
     normalizedQuery.includes("both genders")
   ) {
-    // For both genders, we don't filter by gender
     delete filters.gender;
-    foundGender = false;
   }
 
-  // If we have age range but not age group, don't set age_group
-  // If we found valid filters, return them
-  if (foundGender || foundAgeGroup || foundCountry || hasAgeRange) {
+  // Check if we found any valid filters
+  if (Object.keys(filters).length > 0) {
     return { filters, isValid: true };
   }
 
