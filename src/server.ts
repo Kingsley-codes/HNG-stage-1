@@ -28,7 +28,10 @@ function validateName(name: any): string | null {
   return trimmed;
 }
 
-function applyFilters(profiles: Profile[], filters: FilterOptions): Profile[] {
+function applyFilters(
+  profiles: Profile[],
+  filters: Partial<FilterOptions>,
+): Profile[] {
   let filtered = [...profiles];
 
   if (filters.gender) {
@@ -72,20 +75,12 @@ function applyFilters(profiles: Profile[], filters: FilterOptions): Profile[] {
   return filtered;
 }
 
-// Complete applySorting function fix
 function applySorting(
   profiles: Profile[],
   sortBy: string,
   order: "asc" | "desc",
 ): Profile[] {
   const sorted = [...profiles];
-
-  // Validate sortBy - must be one of the allowed values
-  const validSortFields = ["age", "created_at", "gender_probability"];
-  if (!validSortFields.includes(sortBy)) {
-    // Don't change sortBy here - let the validator handle it
-    return sorted;
-  }
 
   sorted.sort((a, b) => {
     let comparison = 0;
@@ -95,14 +90,14 @@ function applySorting(
         comparison = a.age - b.age;
         break;
       case "created_at":
-        // Ensure both dates are valid
-        const dateA = new Date(a.created_at).getTime();
-        const dateB = new Date(b.created_at).getTime();
-        comparison = dateA - dateB;
+        comparison =
+          new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
         break;
       case "gender_probability":
         comparison = a.gender_probability - b.gender_probability;
         break;
+      default:
+        comparison = 0;
     }
 
     return order === "asc" ? comparison : -comparison;
@@ -117,8 +112,7 @@ function applyPagination(
   limit: number,
 ): Profile[] {
   const startIndex = (page - 1) * limit;
-  const endIndex = startIndex + limit;
-  return profiles.slice(startIndex, endIndex);
+  return profiles.slice(startIndex, startIndex + limit);
 }
 
 // POST /api/profiles
@@ -140,7 +134,6 @@ app.post("/api/profiles", async (req: Request, res: Response) => {
       });
     }
 
-    // Check for existing profile (idempotency)
     const existingProfile = db.getProfileByName(name);
     if (existingProfile) {
       return res.status(200).json({
@@ -150,7 +143,6 @@ app.post("/api/profiles", async (req: Request, res: Response) => {
       });
     }
 
-    // Fetch data from external APIs
     let genderData, ageData, nationalityData;
 
     try {
@@ -171,12 +163,11 @@ app.post("/api/profiles", async (req: Request, res: Response) => {
       });
     }
 
-    // Extract country with highest probability
-    const topCountry = nationalityData.country.reduce((prev, current) =>
-      prev.probability > current.probability ? prev : current,
+    const topCountry = nationalityData.country.reduce(
+      (prev: any, current: any) =>
+        prev.probability > current.probability ? prev : current,
     );
 
-    // Create profile
     const profile: Profile = {
       id: uuidv7(),
       name: name,
@@ -199,6 +190,68 @@ app.post("/api/profiles", async (req: Request, res: Response) => {
     });
   } catch (error) {
     console.error("Error in POST /api/profiles:", error);
+    return res.status(500).json({
+      status: "error",
+      message: "Internal server error",
+    });
+  }
+});
+
+// ⚠️  CRITICAL: /api/profiles/search MUST be declared BEFORE /api/profiles/:id
+// Express matches routes in registration order — without this, "search" is
+// treated as an :id value and the NLP endpoint never runs.
+
+// GET /api/profiles/search (Natural Language Query)
+app.get("/api/profiles/search", (req: Request, res: Response) => {
+  try {
+    const query = req.query.q as string;
+
+    if (!query || query.trim().length === 0) {
+      return res.status(400).json({
+        status: "error",
+        message: "Missing query parameter",
+      });
+    }
+
+    const parsed = parseNaturalLanguage(query);
+
+    if (!parsed.isValid) {
+      return res.status(400).json({
+        status: "error",
+        message: parsed.error || "Unable to interpret query",
+      });
+    }
+
+    let profiles = db.getAllProfiles();
+    let filteredProfiles = applyFilters(profiles, parsed.filters);
+
+    let page = parseInt(req.query.page as string) || 1;
+    let limit = parseInt(req.query.limit as string) || 10;
+
+    if (page < 1) page = 1;
+    if (limit < 1) limit = 10;
+    if (limit > 50) limit = 50;
+
+    const total = filteredProfiles.length;
+    const paginatedProfiles = applyPagination(filteredProfiles, page, limit);
+
+    return res.status(200).json({
+      status: "success",
+      page,
+      limit,
+      total,
+      data: paginatedProfiles.map((p) => ({
+        id: p.id,
+        name: p.name,
+        gender: p.gender,
+        age: p.age,
+        age_group: p.age_group,
+        country_id: p.country_id,
+        country_name: p.country_name,
+      })),
+    });
+  } catch (error) {
+    console.error("Error in GET /api/profiles/search:", error);
     return res.status(500).json({
       status: "error",
       message: "Internal server error",
@@ -235,10 +288,7 @@ app.get("/api/profiles/:id", (req: Request, res: Response) => {
 // GET /api/profiles (with filtering, sorting, pagination)
 app.get("/api/profiles", (req: Request, res: Response) => {
   try {
-    let profiles = db.getAllProfiles();
-
-    // Build filters
-    const filters: FilterOptions = {};
+    const filters: Partial<FilterOptions> = {};
 
     if (req.query.gender && typeof req.query.gender === "string") {
       filters.gender = req.query.gender;
@@ -296,21 +346,19 @@ app.get("/api/profiles", (req: Request, res: Response) => {
       filters.min_country_probability = minProb;
     }
 
-    // Pagination parameters
+    // Pagination
     let page = parseInt(req.query.page as string) || 1;
     let limit = parseInt(req.query.limit as string) || 10;
-
     if (page < 1) page = 1;
     if (limit < 1) limit = 10;
     if (limit > 50) limit = 50;
 
-    // Sorting parameters
-    let sortBy = (req.query.sort_by as string) || "created_at";
-    let order: "asc" | "desc" =
+    // Sorting
+    const validSortFields = ["age", "created_at", "gender_probability"];
+    const sortBy = (req.query.sort_by as string) || "created_at";
+    const order: "asc" | "desc" =
       (req.query.order as string) === "desc" ? "desc" : "asc";
 
-    // Validate sortBy
-    const validSortFields = ["age", "created_at", "gender_probability"];
     if (!validSortFields.includes(sortBy)) {
       return res.status(422).json({
         status: "error",
@@ -318,25 +366,18 @@ app.get("/api/profiles", (req: Request, res: Response) => {
       });
     }
 
-    if (!["age", "created_at", "gender_probability"].includes(sortBy)) {
-      sortBy = "created_at";
-    }
-
-    // Apply filters
+    let profiles = db.getAllProfiles();
     let filteredProfiles = applyFilters(profiles, filters);
     const total = filteredProfiles.length;
 
-    // Apply sorting
     filteredProfiles = applySorting(filteredProfiles, sortBy, order);
-
-    // Apply pagination
     const paginatedProfiles = applyPagination(filteredProfiles, page, limit);
 
     const response: ProfilesListResponse = {
       status: "success",
-      page: page,
-      limit: limit,
-      total: total,
+      page,
+      limit,
+      total,
       data: paginatedProfiles.map((p) => ({
         id: p.id,
         name: p.name,
@@ -358,71 +399,6 @@ app.get("/api/profiles", (req: Request, res: Response) => {
   }
 });
 
-// GET /api/profiles/search (Natural Language Query)
-app.get("/api/profiles/search", (req: Request, res: Response) => {
-  try {
-    const query = req.query.q as string;
-
-    if (!query || query.trim().length === 0) {
-      return res.status(400).json({
-        status: "error",
-        message: "Missing query parameter",
-      });
-    }
-
-    // Parse natural language
-    const parsed = parseNaturalLanguage(query);
-
-    if (!parsed.isValid) {
-      return res.status(400).json({
-        status: "error",
-        message: parsed.error || "Unable to interpret query",
-      });
-    }
-
-    let profiles = db.getAllProfiles();
-    let filteredProfiles = applyFilters(profiles, parsed.filters);
-
-    // Apply pagination
-    let page = parseInt(req.query.page as string) || 1;
-    let limit = parseInt(req.query.limit as string) || 10;
-
-    if (page < 1) page = 1;
-    if (limit < 1) limit = 10;
-    if (limit > 50) limit = 50;
-
-    const total = filteredProfiles.length;
-    const startIndex = (page - 1) * limit;
-    const paginatedProfiles = filteredProfiles.slice(
-      startIndex,
-      startIndex + limit,
-    );
-
-    const response = {
-      status: "success",
-      page: page,
-      limit: limit,
-      total: total,
-      data: paginatedProfiles.map((p) => ({
-        id: p.id,
-        name: p.name,
-        gender: p.gender,
-        age: p.age,
-        age_group: p.age_group,
-        country_id: p.country_id,
-        country_name: p.country_name,
-      })),
-    };
-
-    return res.status(200).json(response);
-  } catch (error) {
-    console.error("Error in GET /api/profiles/search:", error);
-    return res.status(500).json({
-      status: "error",
-      message: "Internal server error",
-    });
-  }
-});
 // DELETE /api/profiles/:id
 app.delete("/api/profiles/:id", (req: Request, res: Response) => {
   try {
@@ -446,16 +422,16 @@ app.delete("/api/profiles/:id", (req: Request, res: Response) => {
   }
 });
 
-// Root endpoint for testing
+// Root endpoint
 app.get("/", (req: Request, res: Response) => {
   res.status(200).json({
     status: "success",
     message: "Intelligence Query Engine API is running",
     endpoints: [
       "POST /api/profiles",
+      "GET /api/profiles/search?q=<natural language query>",
       "GET /api/profiles/:id",
       "GET /api/profiles",
-      "GET /api/profiles/search?q=<natural language query>",
       "DELETE /api/profiles/:id",
     ],
     examples: {
@@ -466,7 +442,7 @@ app.get("/", (req: Request, res: Response) => {
   });
 });
 
-// Health check endpoint
+// Health check
 app.get("/health", (req: Request, res: Response) => {
   res.status(200).json({ status: "ok", profiles: db.getProfileCount() });
 });
