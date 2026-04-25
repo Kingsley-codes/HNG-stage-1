@@ -1,9 +1,9 @@
-// src/apiClients.ts
+// src/services/apiClients.ts
 import {
   GenderizeResponse,
   AgifyResponse,
   NationalizeResponse,
-} from "./types.js";
+} from "../types/index.js";
 
 async function fetchWithTimeout(
   url: string,

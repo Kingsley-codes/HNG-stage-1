@@ -1,6 +1,6 @@
 // src/nlpParser.ts - COMPLETE REWRITE
 
-import { FilterOptions } from "./types.js";
+import { FilterOptions } from "../types/index.js";
 
 interface ParsedQuery {
   filters: Partial<FilterOptions>;
