@@ -12,7 +12,7 @@ const tokenService = new TokenService();
 const githubService = new GitHubService(
   env.GITHUB_CLIENT_ID,
   env.GITHUB_CLIENT_SECRET,
-  env.GITHUB_REDIRECT_URI,
+  env.GITHUB_REDIRECT_URI!,
 );
 
 const authService = new AuthService(userService, tokenService, githubService);

@@ -4,14 +4,12 @@ dotenv.config();
 
 export const env = {
   NODE_ENV: process.env.NODE_ENV || "development",
-  PORT: parseInt(process.env.PORT || "3000"),
+  PORT: parseInt(process.env.PORT || "4000"),
 
   // GitHub OAuth
   GITHUB_CLIENT_ID: process.env.GITHUB_CLIENT_ID || "",
   GITHUB_CLIENT_SECRET: process.env.GITHUB_CLIENT_SECRET || "",
-  GITHUB_REDIRECT_URI:
-    process.env.GITHUB_REDIRECT_URI ||
-    "http://localhost:3000/auth/github/callback",
+  GITHUB_REDIRECT_URI: process.env.GITHUB_REDIRECT_URI,
 
   // JWT
   JWT_ACCESS_SECRET:

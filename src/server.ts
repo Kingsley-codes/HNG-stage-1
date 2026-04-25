@@ -9,39 +9,36 @@ import helmet from "helmet";
 import cookieParser from "cookie-parser";
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT;
 
 app.use(helmet());
 app.use(cookieParser());
 app.use(express.json());
 
-// CORS configuration for web portal
-app.use((req, res, next) => {
-  const allowedOrigins = [
-    process.env.WEB_PORTAL_URL || "http://localhost:3000",
-  ];
-  const origin = req.headers.origin;
-
-  if (origin && allowedOrigins.includes(origin)) {
-    res.setHeader("Access-Control-Allow-Origin", origin);
-  }
-
-  res.setHeader("Access-Control-Allow-Credentials", "true");
-  res.setHeader(
-    "Access-Control-Allow-Methods",
-    "GET, POST, PUT, DELETE, OPTIONS",
-  );
-  res.setHeader(
-    "Access-Control-Allow-Headers",
-    "Content-Type, Authorization, X-API-Version, X-CSRF-Token",
-  );
-
-  if (req.method === "OPTIONS") {
-    return res.sendStatus(200);
-  }
-
-  next();
-});
+// CORS configuration using the cors package
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      const allowedOrigins = [
+        process.env.WEB_PORTAL_URL || "http://localhost:3000",
+        `http://localhost:${process.env.CLI_CALLBACK_PORT || 3001}`,
+      ];
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error("Not allowed by CORS"));
+      }
+    },
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+      "X-API-Version",
+      "X-CSRF-Token",
+    ],
+  }),
+);
 
 // Routes
 app.use("/auth", authRoutes);
