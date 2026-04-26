@@ -4,8 +4,10 @@ import {
   getCLIAuthUrl,
   handleGitHubCallback,
   initiateGitHubAuth,
+  login,
   logout,
   refreshToken,
+  signup,
   whoami,
 } from "../controllers/authController.js";
 import { authRateLimiter } from "../middleware/rateLimit.js";
@@ -25,5 +27,7 @@ router.post("/cli/github/callback", authRateLimiter, handleGitHubCallback);
 router.post("/refresh", authRateLimiter, refreshToken);
 router.post("/logout", authRateLimiter, logout);
 router.get("/me", authRateLimiter, whoami);
+router.get("/login", authRateLimiter, login);
+router.get("/signup", authRateLimiter, signup);
 
 export default router;

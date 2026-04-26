@@ -52,16 +52,38 @@ export interface FilterOptions {
 }
 
 // ========== Auth Types (New) ==========
+// src/types/index.ts
+
 export interface User {
   id: string;
-  github_id: number;
+  github_id: number | null;
   username: string;
   email: string | null;
+  full_name?: string | null;
+  password_hash?: string | null;
   avatar_url: string | null;
   role: "admin" | "analyst";
   is_active: boolean;
-  last_login_at: string;
+  last_login_at: string | null;
   created_at: string;
+  updated_at?: string;
+}
+
+export interface RefreshToken {
+  id: string;
+  user_id: string;
+  token_hash: string;
+  expires_at: string;
+  created_at: string;
+  revoked_at: string | null;
+}
+
+// Keep your existing Profile interface
+export interface Profile {
+  id: string;
+  name: string;
+  country: string;
+  // ... other profile fields
 }
 
 export interface RefreshToken {

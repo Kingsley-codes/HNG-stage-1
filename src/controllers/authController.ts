@@ -5,6 +5,9 @@ import { env } from "../config/env.js";
 import { TokenService } from "../services/tokenService.js";
 import { UserService } from "../services/userService.js";
 import { GitHubService } from "../services/githubService.js";
+import { db } from "../services/database.js";
+import bcrypt from "bcrypt";
+import crypto from "crypto";
 
 // Initialize dependencies
 const userService = new UserService();
@@ -284,6 +287,235 @@ export const whoami = async (req: Request, res: Response) => {
     res.status(500).json({
       status: "error",
       message: "Failed to get user info",
+    });
+  }
+};
+
+export const signup = async (req: Request, res: Response) => {
+  try {
+    const { email, password, username, full_name } = req.body;
+
+    // Validate required fields
+    if (!email || !password || !username) {
+      return res.status(400).json({
+        status: "error",
+        message: "Missing required fields: email, password, username",
+      });
+    }
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@([^\s@]+\.)+[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({
+        status: "error",
+        message: "Invalid email format",
+      });
+    }
+
+    // Validate password strength
+    if (password.length < 8) {
+      return res.status(400).json({
+        status: "error",
+        message: "Password must be at least 8 characters long",
+      });
+    }
+
+    // Check for strong password (optional but recommended)
+    const hasUpperCase = /[A-Z]/.test(password);
+    const hasLowerCase = /[a-z]/.test(password);
+    const hasNumbers = /\d/.test(password);
+    const hasSpecialChar = /[!@#$%^&*(),.?":{}|<>]/.test(password);
+
+    if (!(hasUpperCase && hasLowerCase && hasNumbers && hasSpecialChar)) {
+      return res.status(400).json({
+        status: "error",
+        message:
+          "Password must contain uppercase, lowercase, number, and special character",
+      });
+    }
+
+    // Check if user already exists
+    const existingUserByEmail = await userService.getUserByEmail(email);
+    if (existingUserByEmail) {
+      return res.status(409).json({
+        status: "error",
+        message: "User with this email already exists",
+      });
+    }
+
+    const existingUserByUsername =
+      await userService.getUserByUsername(username);
+    if (existingUserByUsername) {
+      return res.status(409).json({
+        status: "error",
+        message: "Username already taken",
+      });
+    }
+
+    // Hash password
+    const saltRounds = 12;
+    const passwordHash = await bcrypt.hash(password, saltRounds);
+
+    // Create new user
+    const newUser = {
+      id: crypto.randomUUID(),
+      email: email.toLowerCase(),
+      username: username.toLowerCase(),
+      full_name: full_name || null,
+      password_hash: passwordHash,
+      role: "analyst" as "analyst",
+      is_active: true,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      last_login_at: null,
+      github_id: null,
+      avatar_url: null,
+    };
+
+    const createdUser = await userService.createUser(newUser);
+
+    // Return user data (excluding sensitive info) and tokens
+    res.status(201).json({
+      status: "success",
+      message: "User created successfully. Please verify your email.",
+      data: {
+        user: {
+          id: createdUser.id,
+          email: createdUser.email,
+          username: createdUser.username,
+          full_name: createdUser.full_name,
+          role: createdUser.role,
+        },
+      },
+    });
+  } catch (error) {
+    console.error("Signup error:", error);
+    res.status(500).json({
+      status: "error",
+      message: "Failed to create user",
+    });
+  }
+};
+
+// ========== NEW: Email/Password Login ==========
+export const login = async (req: Request, res: Response) => {
+  try {
+    const { email, password, clientType = "web" } = req.body;
+
+    // Validate required fields
+    if (!email || !password) {
+      return res.status(400).json({
+        status: "error",
+        message: "Email and password are required",
+      });
+    }
+
+    // Find user by email
+    const user = await userService.getUserByEmail(email.toLowerCase());
+
+    if (!user) {
+      return res.status(401).json({
+        status: "error",
+        message: "Invalid email or password",
+      });
+    }
+
+    // Check if user is active
+    if (!user.is_active) {
+      return res.status(401).json({
+        status: "error",
+        message: "Account is deactivated. Please contact support.",
+      });
+    }
+
+    // Check if user has a password (not a GitHub-only account)
+    if (!user.password_hash) {
+      return res.status(401).json({
+        status: "error",
+        message:
+          "This account uses GitHub login. Please use 'Continue with GitHub' option.",
+      });
+    }
+
+    // Verify password
+    const isValidPassword = await bcrypt.compare(password, user.password_hash);
+    if (!isValidPassword) {
+      return res.status(401).json({
+        status: "error",
+        message: "Invalid email or password",
+      });
+    }
+
+    // Update last login
+    await userService.updateLastLogin(user.id);
+
+    // Generate tokens
+    const accessToken = tokenService.generateAccessToken({
+      user_id: user.id,
+      username: user.username,
+      role: user.role as "admin" | "analyst",
+    });
+
+    const { token: refreshToken, hash: refreshTokenHash } =
+      tokenService.generateRefreshToken();
+
+    db.saveRefreshToken(user.id, refreshTokenHash, env.REFRESH_TOKEN_EXPIRY);
+
+    // For web portal: set HTTP-only cookies
+    if (clientType === "web") {
+      res.cookie("access_token", accessToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        maxAge: env.ACCESS_TOKEN_EXPIRY * 1000,
+        sameSite: "strict",
+      });
+
+      res.cookie("refresh_token", refreshToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        maxAge: env.REFRESH_TOKEN_EXPIRY * 1000,
+        sameSite: "strict",
+      });
+
+      // Return success without tokens in body for web
+      return res.json({
+        status: "success",
+        message: "Login successful",
+        data: {
+          user: {
+            id: user.id,
+            email: user.email,
+            username: user.username,
+            full_name: user.full_name,
+            role: user.role as "admin" | "analyst",
+            avatar_url: user.avatar_url,
+          },
+        },
+      });
+    }
+
+    // For CLI/API: return tokens in response
+    res.json({
+      status: "success",
+      message: "Login successful",
+      data: {
+        user: {
+          id: user.id,
+          email: user.email,
+          username: user.username,
+          full_name: user.full_name,
+          role: user.role as "admin" | "analyst",
+          avatar_url: user.avatar_url,
+        },
+        access_token: accessToken,
+        refresh_token: refreshToken,
+      },
+    });
+  } catch (error) {
+    console.error("Login error:", error);
+    res.status(500).json({
+      status: "error",
+      message: "Login failed",
     });
   }
 };

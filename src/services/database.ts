@@ -202,6 +202,17 @@ class LocalDB {
     return false;
   }
 
+  createUserWithPassword(user: User): void {
+    this.db.users.set(user.id, user);
+
+    // If user has github_id, add to github index
+    if (user.github_id) {
+      this.db.githubIndex.set(user.github_id, user.id);
+    }
+
+    this.saveToFile();
+  }
+
   findOrCreateUser(githubUser: any): User {
     // Check if user exists by github_id
     let userId = this.db.githubIndex.get(githubUser.id);

@@ -15,14 +15,57 @@ export class UserService {
     return db.getUserByGithubId(githubId);
   }
 
+  async getUserByEmail(email: string): Promise<User | null> {
+    const allUsers = db.getAllUsers();
+    return allUsers.find((user) => user.email === email) || null;
+  }
+
+  async getUserByUsername(username: string): Promise<User | null> {
+    const allUsers = db.getAllUsers();
+    return allUsers.find((user) => user.username === username) || null;
+  }
+
+  async createUser(
+    userData: Partial<User> & { password_hash: string },
+  ): Promise<User> {
+    // Ensure required fields are present
+    if (
+      !userData.id ||
+      !userData.email ||
+      !userData.username ||
+      !userData.password_hash
+    ) {
+      throw new Error(
+        "Missing required user data: id, email, username, or password_hash",
+      );
+    }
+
+    // Create the complete user object
+    const newUser: User = {
+      id: userData.id,
+      github_id: userData.github_id || null,
+      username: userData.username,
+      email: userData.email,
+      full_name: userData.full_name || null,
+      password_hash: userData.password_hash,
+      avatar_url: userData.avatar_url || null,
+      role: userData.role || "analyst",
+      is_active: userData.is_active ?? true,
+      last_login_at: userData.last_login_at || null,
+      created_at: userData.created_at || new Date().toISOString(),
+      updated_at: userData.updated_at || new Date().toISOString(),
+    };
+
+    // Save to database
+    db.createUserWithPassword(newUser);
+    return newUser;
+  }
+
   async updateLastLogin(userId: string): Promise<void> {
     // Get user, update last_login_at, save back
     const user = db.getUserById(userId);
     if (user) {
       user.last_login_at = new Date().toISOString();
-      // Since LocalDB doesn't have a direct update method,
-      // we need to save it back through the existing structure
-      // Add this method to LocalDB or use the existing pattern
       db.updateUserLastLogin(userId);
     }
   }
