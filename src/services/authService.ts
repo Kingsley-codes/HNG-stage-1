@@ -18,25 +18,26 @@ export class AuthService {
     this.githubService = githubService;
   }
 
-  async initiateGitHubAuth(): Promise<{
+  // Modified: Accept codeChallenge from client (CLI/Web)
+  async initiateGitHubAuth(codeChallenge: string): Promise<{
     url: string;
     state: string;
-    codeVerifier: string;
   }> {
     const state = this.githubService.generateState();
-    const { codeVerifier, codeChallenge } = this.githubService.generatePKCE();
 
+    // Generate URL with the codeChallenge provided by client
     const url = this.githubService.getAuthorizationUrl(state, codeChallenge);
 
-    return { url, state, codeVerifier };
+    return { url, state };
   }
 
+  // Modified: Accept codeVerifier from client
   async handleGitHubCallback(
     code: string,
     state: string,
-    codeVerifier: string,
+    codeVerifier: string, // Now comes from client, not from backend storage
   ): Promise<any> {
-    // Exchange code for access token
+    // Exchange code for access token using client's codeVerifier
     const tokenData = await this.githubService.exchangeCode(code, codeVerifier);
 
     if (!tokenData.access_token) {
@@ -54,6 +55,9 @@ export class AuthService {
     if (!user.is_active) {
       throw new Error("User account is deactivated");
     }
+
+    // Update last login
+    await this.userService.updateLastLogin(user.id);
 
     // Generate tokens
     const accessToken = this.tokenService.generateAccessToken({

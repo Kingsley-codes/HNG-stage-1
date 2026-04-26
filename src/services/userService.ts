@@ -15,6 +15,18 @@ export class UserService {
     return db.getUserByGithubId(githubId);
   }
 
+  async updateLastLogin(userId: string): Promise<void> {
+    // Get user, update last_login_at, save back
+    const user = db.getUserById(userId);
+    if (user) {
+      user.last_login_at = new Date().toISOString();
+      // Since LocalDB doesn't have a direct update method,
+      // we need to save it back through the existing structure
+      // Add this method to LocalDB or use the existing pattern
+      db.updateUserLastLogin(userId);
+    }
+  }
+
   async updateUserRole(
     userId: string,
     role: "admin" | "analyst",

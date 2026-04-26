@@ -181,6 +181,27 @@ class LocalDB {
   }
 
   // ========== User Methods (New) ==========
+  updateUserLastLogin(userId: string): void {
+    const user = this.db.users.get(userId);
+    if (user) {
+      user.last_login_at = new Date().toISOString();
+      this.db.users.set(userId, user);
+      this.saveToFile();
+    }
+  }
+
+  // Or alternatively, create a generic update method:
+  updateUser(userId: string, updates: Partial<User>): boolean {
+    const user = this.db.users.get(userId);
+    if (user) {
+      Object.assign(user, updates);
+      this.db.users.set(userId, user);
+      this.saveToFile();
+      return true;
+    }
+    return false;
+  }
+
   findOrCreateUser(githubUser: any): User {
     // Check if user exists by github_id
     let userId = this.db.githubIndex.get(githubUser.id);

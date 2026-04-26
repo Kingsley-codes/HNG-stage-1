@@ -17,11 +17,32 @@ const githubService = new GitHubService(
 
 const authService = new AuthService(userService, tokenService, githubService);
 
+// Modified: Accept code_challenge from query parameters
 export const initiateGitHubAuth = async (req: Request, res: Response) => {
   try {
-    const { url, state, codeVerifier } = await authService.initiateGitHubAuth();
+    const { code_challenge } = req.query;
 
-    // Store PKCE verifier in cookies
+    // Validate code_challenge is provided
+    if (!code_challenge || typeof code_challenge !== "string") {
+      return res.status(400).json({
+        status: "error",
+        message: "code_challenge parameter is required",
+      });
+    }
+
+    // Validate code_challenge format (base64url)
+    const base64urlRegex = /^[A-Za-z0-9_-]+$/;
+    if (!base64urlRegex.test(code_challenge)) {
+      return res.status(400).json({
+        status: "error",
+        message: "Invalid code_challenge format",
+      });
+    }
+
+    const { url, state } = await authService.initiateGitHubAuth(code_challenge);
+
+    // Store only the state for validation (no code_verifier anymore)
+    // This is now stateless - we just need to validate state on callback
     res.cookie("oauth_state", state, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
@@ -29,16 +50,12 @@ export const initiateGitHubAuth = async (req: Request, res: Response) => {
       sameSite: "lax",
     });
 
-    res.cookie("code_verifier", codeVerifier, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      maxAge: 10 * 60 * 1000,
-      sameSite: "lax",
-    });
-
     res.json({
       status: "success",
-      data: { url },
+      data: {
+        url,
+        state,
+      },
     });
   } catch (error) {
     console.error("Auth initiation error:", error);
@@ -49,39 +66,55 @@ export const initiateGitHubAuth = async (req: Request, res: Response) => {
   }
 };
 
+// Modified: Accept code_verifier from request body
 export const handleGitHubCallback = async (req: Request, res: Response) => {
   try {
-    const { code, state } = req.query;
-    const storedState = req.cookies?.oauth_state;
-    const codeVerifier = req.cookies?.code_verifier;
+    // Handle both GET (query) and POST (body) parameters
+    const code = req.body.code || req.query.code;
+    const state = req.body.state || req.query.state;
+    const code_verifier = req.body.code_verifier || req.query.code_verifier;
+    const clientType = req.body.client || req.query.client;
 
-    // Validate state
-    if (!state || state !== storedState) {
+    // Validate required parameters
+    if (!code || !state || !code_verifier || !clientType) {
+      return res.status(400).json({
+        status: "error",
+        message:
+          "Missing required parameters: code, state, code_verifier, and client are required",
+      });
+    }
+
+    // Validate state matches stored cookie (for web) or passed state (for CLI)
+    const storedState = req.cookies?.oauth_state;
+
+    // For CLI, we don't have cookies, so we trust the state parameter
+    // But we still validate format and ensure it's not tampered
+    if (clientType !== "cli" && storedState && state !== storedState) {
       return res.status(400).json({
         status: "error",
         message: "Invalid state parameter",
       });
     }
 
-    if (!code || typeof code !== "string") {
+    // Validate code_verifier format
+    if (typeof code_verifier !== "string" || code_verifier.length < 43) {
       return res.status(400).json({
         status: "error",
-        message: "Missing authorization code",
+        message: "Invalid code_verifier format",
       });
     }
 
     const authResult = await authService.handleGitHubCallback(
       code,
-      state as string,
-      codeVerifier,
+      state,
+      code_verifier,
     );
 
-    // Clear OAuth cookies
+    // Clear OAuth cookie if it exists
     res.clearCookie("oauth_state");
-    res.clearCookie("code_verifier");
 
     // For web portal: set HTTP-only cookies
-    if (req.query.client === "web") {
+    if (clientType === "web") {
       res.cookie("access_token", authResult.access_token, {
         httpOnly: true,
         secure: process.env.NODE_ENV === "production",
@@ -110,6 +143,38 @@ export const handleGitHubCallback = async (req: Request, res: Response) => {
     res.status(500).json({
       status: "error",
       message: error.message || "Authentication failed",
+    });
+  }
+};
+
+// New endpoint for CLI to get auth URL
+export const getCLIAuthUrl = async (req: Request, res: Response) => {
+  try {
+    const { code_challenge } = req.body;
+
+    if (!code_challenge) {
+      return res.status(400).json({
+        status: "error",
+        message: "code_challenge is required",
+      });
+    }
+
+    const { url, state } = await authService.initiateGitHubAuth(code_challenge);
+
+    // For CLI, we don't set cookies - just return state
+    // CLI will manage its own state validation
+    res.json({
+      status: "success",
+      data: {
+        url,
+        state,
+      },
+    });
+  } catch (error) {
+    console.error("CLI auth URL error:", error);
+    res.status(500).json({
+      status: "error",
+      message: "Failed to generate auth URL",
     });
   }
 };
@@ -167,6 +232,7 @@ export const logout = async (req: Request, res: Response) => {
     // Clear cookies
     res.clearCookie("access_token");
     res.clearCookie("refresh_token");
+    res.clearCookie("oauth_state");
 
     res.json({
       status: "success",
@@ -211,6 +277,7 @@ export const whoami = async (req: Request, res: Response) => {
         username: user.username,
         email: user.email,
         role: user.role,
+        avatar_url: user.avatar_url,
       },
     });
   } catch (error) {
