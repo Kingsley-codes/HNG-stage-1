@@ -19,18 +19,18 @@ export class AuthService {
   }
 
   // Modified: Accept codeChallenge from client (CLI/Web)
-  async initiateGitHubAuth(): Promise<{
+  async initiateGitHubAuth(clientType: string = "web"): Promise<{
     url: string;
     state: string;
     codeVerifier: string;
   }> {
-    const state = this.githubService.generateState();
+    const state = `${this.githubService.generateState()}:${clientType}`;
     const { codeVerifier, codeChallenge } = this.githubService.generatePKCE();
 
     // Generate URL with the codeChallenge provided by client
     const url = this.githubService.getAuthorizationUrl(state, codeChallenge);
 
-    return { url, state, codeVerifier };
+    return { url, state: state, codeVerifier };
   }
 
   // Modified: Accept codeVerifier from client

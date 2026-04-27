@@ -23,7 +23,9 @@ const authService = new AuthService(userService, tokenService, githubService);
 // Modified: Accept code_challenge from query parameters
 export const initiateGitHubAuth = async (req: Request, res: Response) => {
   try {
-    const { url, state, codeVerifier } = await authService.initiateGitHubAuth();
+    const clientType = req.query.client === "cli" ? "cli" : "web";
+    const { url, state, codeVerifier } =
+      await authService.initiateGitHubAuth(clientType);
 
     // Store only the state for validation (no code_verifier anymore)
     // This is now stateless - we just need to validate state on callback
@@ -79,6 +81,9 @@ export const handleGitHubCallback = async (req: Request, res: Response) => {
       });
     }
 
+    // Extract client type from state instead of req.query.client
+    const [, clientType] = (state as string).split(":");
+
     const authResult = await authService.handleGitHubCallback(
       code,
       state as string,
@@ -90,7 +95,7 @@ export const handleGitHubCallback = async (req: Request, res: Response) => {
     res.clearCookie("code_verifier");
 
     // For web portal: set HTTP-only cookies
-    if (req.query.client === "web") {
+    if (clientType === "web") {
       res.cookie("access_token", authResult.access_token, {
         httpOnly: true,
         secure: process.env.NODE_ENV === "production",

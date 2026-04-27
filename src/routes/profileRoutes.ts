@@ -25,8 +25,8 @@ router.use(requireApiVersion); // Require API version header
 // Routes accessible by both admin and analyst (read-only)
 router.get("/search", requireAnalyst, searchProfilesByNLP);
 router.get("/", requireAnalyst, getAllProfiles);
-router.get("/:id", requireAnalyst, getProfileById);
 router.get("/export", requireAnalyst, exportProfiles);
+router.get("/:id", requireAnalyst, getProfileById);
 
 // Routes accessible only by admin (write/delete operations)
 router.post("/", requireAdmin, createProfile);
