@@ -27,7 +27,7 @@ router.post("/cli/github/callback", authRateLimiter, handleGitHubCallback);
 router.post("/refresh", authRateLimiter, refreshToken);
 router.post("/logout", authRateLimiter, logout);
 router.get("/me", authRateLimiter, whoami);
-router.get("/login", authRateLimiter, login);
-router.get("/signup", authRateLimiter, signup);
+router.post("/login", authRateLimiter, login);
+router.post("/signup", authRateLimiter, signup);
 
 export default router;

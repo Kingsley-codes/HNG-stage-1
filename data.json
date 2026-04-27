@@ -28378,6 +28378,20 @@
       "is_active": true,
       "last_login_at": "2026-04-26T11:39:23.646Z",
       "created_at": "2026-04-25T22:59:10.030Z"
+    },
+    "2be9f650-ec48-49d2-890e-340ef5471e86": {
+      "id": "2be9f650-ec48-49d2-890e-340ef5471e86",
+      "github_id": null,
+      "username": "keazzy",
+      "email": "agbamkingsley+jsda@gmail.com",
+      "full_name": "Dev Keazzy",
+      "password_hash": "$2b$12$/IxEzxK0VMW8CaOxFihdU.XYc511e3qMuMB4vXsYXTxsFHDAATLhW",
+      "avatar_url": null,
+      "role": "analyst",
+      "is_active": true,
+      "last_login_at": "2026-04-26T20:54:34.819Z",
+      "created_at": "2026-04-26T20:52:08.048Z",
+      "updated_at": "2026-04-26T20:52:08.048Z"
     }
   },
   "githubIndex": {
@@ -28414,6 +28428,22 @@
       "token_hash": "61ed334c49c17adb0188e11a6d613b6c1330b8c012d43f5b8212d5c6de4234f0",
       "expires_at": "2026-04-26T11:50:32.467Z",
       "created_at": "2026-04-26T11:40:32.467Z",
+      "revoked_at": null
+    },
+    "5f262d93a6240131f6f25161ff9aead79e2a9a9db7c0e8e935d97bdc62c4469a": {
+      "id": "ef1acf96-7359-4257-9651-764ed2acbde0",
+      "user_id": "2be9f650-ec48-49d2-890e-340ef5471e86",
+      "token_hash": "5f262d93a6240131f6f25161ff9aead79e2a9a9db7c0e8e935d97bdc62c4469a",
+      "expires_at": "2026-04-26T20:58:43.959Z",
+      "created_at": "2026-04-26T20:53:43.959Z",
+      "revoked_at": null
+    },
+    "5206ecc20c5c16f103a90c48643010e78d4267e73181e81c5a3aa1785599a746": {
+      "id": "8d04d9d5-135b-4397-b9e6-cf4b6a19561b",
+      "user_id": "2be9f650-ec48-49d2-890e-340ef5471e86",
+      "token_hash": "5206ecc20c5c16f103a90c48643010e78d4267e73181e81c5a3aa1785599a746",
+      "expires_at": "2026-04-26T20:59:34.832Z",
+      "created_at": "2026-04-26T20:54:34.832Z",
       "revoked_at": null
     }
   }

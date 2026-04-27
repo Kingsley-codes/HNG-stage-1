@@ -78,14 +78,6 @@ export interface RefreshToken {
   revoked_at: string | null;
 }
 
-// Keep your existing Profile interface
-export interface Profile {
-  id: string;
-  name: string;
-  country: string;
-  // ... other profile fields
-}
-
 export interface RefreshToken {
   id: string;
   user_id: string;
