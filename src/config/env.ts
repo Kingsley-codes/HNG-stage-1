@@ -11,6 +11,11 @@ export const env = {
   GITHUB_CLIENT_SECRET: process.env.GITHUB_CLIENT_SECRET || "",
   GITHUB_REDIRECT_URI: process.env.GITHUB_REDIRECT_URI,
 
+  // GitHub OAuth - CLI (separate OAuth app)
+  GITHUB_CLI_CLIENT_ID: process.env.GITHUB_CLI_CLIENT_ID || "",
+  GITHUB_CLI_CLIENT_SECRET: process.env.GITHUB_CLI_CLIENT_SECRET || "",
+  GITHUB_CLI_REDIRECT_URI: process.env.GITHUB_CLI_REDIRECT_URI,
+
   // JWT
   JWT_ACCESS_SECRET:
     process.env.JWT_ACCESS_SECRET || "access-secret-key-change-me",

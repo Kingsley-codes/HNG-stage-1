@@ -12,40 +12,65 @@ import crypto from "crypto";
 // Initialize dependencies
 const userService = new UserService();
 const tokenService = new TokenService();
-const githubService = new GitHubService(
+const githubWebService = new GitHubService(
   env.GITHUB_CLIENT_ID,
   env.GITHUB_CLIENT_SECRET,
   env.GITHUB_REDIRECT_URI!,
 );
 
-const authService = new AuthService(userService, tokenService, githubService);
+// Initialize CLI-specific GitHub service
+const githubCliService = new GitHubService(
+  env.GITHUB_CLI_CLIENT_ID,
+  env.GITHUB_CLI_CLIENT_SECRET,
+  env.GITHUB_CLI_REDIRECT_URI!,
+);
+
+const authService = new AuthService(
+  userService,
+  tokenService,
+  githubWebService,
+);
 
 // Modified: Accept code_challenge from query parameters
 export const initiateGitHubAuth = async (req: Request, res: Response) => {
   try {
     const clientType = req.query.client === "cli" ? "cli" : "web";
+
+    // Use appropriate GitHub service based on client type
+    const githubService =
+      clientType === "cli" ? githubCliService : githubWebService;
+    const tempAuthService = new AuthService(
+      userService,
+      tokenService,
+      githubService,
+    );
+
     const { url, state, codeVerifier } =
-      await authService.initiateGitHubAuth(clientType);
+      await tempAuthService.initiateGitHubAuth(clientType);
 
-    // Store only the state for validation (no code_verifier anymore)
-    // This is now stateless - we just need to validate state on callback
-    res.cookie("oauth_state", state, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      maxAge: 10 * 60 * 1000, // 10 minutes
-      sameSite: "lax",
-    });
+    // Store state and verifier in cookies (for web) or return them (for CLI)
+    if (clientType === "web") {
+      res.cookie("oauth_state", state, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        maxAge: 10 * 60 * 1000,
+        sameSite: "lax",
+      });
 
-    res.cookie("code_verifier", codeVerifier, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      maxAge: 10 * 60 * 1000,
-      sameSite: "lax",
-    });
+      res.cookie("code_verifier", codeVerifier, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        maxAge: 10 * 60 * 1000,
+        sameSite: "lax",
+      });
+    }
 
     res.json({
       status: "success",
-      data: { url },
+      data: {
+        url,
+        ...(clientType === "cli" && { state, codeVerifier }), // Return to CLI if needed
+      },
     });
   } catch (error) {
     console.error("Auth initiation error:", error);
@@ -56,24 +81,46 @@ export const initiateGitHubAuth = async (req: Request, res: Response) => {
   }
 };
 
-// Modified: Accept code_verifier from request body
+// Unified callback handler - handles both web and CLI flows
 export const handleGitHubCallback = async (req: Request, res: Response) => {
   try {
     const { code, state } = req.query;
+    let codeVerifier: string | undefined;
+    let clientType: string;
 
-    // Validate state matches stored cookie (for web) or passed state (for CLI)
-    const storedState = req.cookies?.oauth_state;
-    const codeVerifier = req.cookies?.code_verifier;
+    // Determine if this is a CLI callback (code_verifier in body/query) or web (from cookies)
+    // CLI will send code_verifier and client_type in the request
+    if (req.body.code_verifier || req.query.code_verifier) {
+      // CLI flow: code_verifier is provided by the client
+      codeVerifier = (req.body.code_verifier ||
+        req.query.code_verifier) as string;
+      clientType = req.body.client_type || req.query.client_type || "cli";
 
-    // Validate state
-    if (!state || state !== storedState) {
-      return res.status(400).json({
-        status: "error",
-        message: "Invalid state parameter",
-      });
+      // For CLI, we don't need to validate state from cookies
+      // But we still validate the state parameter matches what was sent
+      // (CLI should store the state and send it back)
+      if (!state) {
+        return res.status(400).json({
+          status: "error",
+          message: "State parameter required for CLI authentication",
+        });
+      }
+    } else {
+      // Web flow: code_verifier comes from cookies
+      const storedState = req.cookies?.oauth_state;
+      codeVerifier = req.cookies?.code_verifier;
+
+      if (!state || state !== storedState) {
+        return res.status(400).json({
+          status: "error",
+          message: "Invalid state parameter",
+        });
+      }
+
+      const [, extractedType] = (state as string).split(":");
+      clientType = extractedType;
     }
 
-    // Validate code_verifier format
     if (!code || typeof code !== "string") {
       return res.status(400).json({
         status: "error",
@@ -81,21 +128,80 @@ export const handleGitHubCallback = async (req: Request, res: Response) => {
       });
     }
 
-    // Extract client type from state instead of req.query.client
-    const [, clientType] = (state as string).split(":");
+    if (!codeVerifier) {
+      return res.status(400).json({
+        status: "error",
+        message: "Missing code verifier",
+      });
+    }
 
-    const authResult = await authService.handleGitHubCallback(
-      code,
-      state as string,
+    // Select the appropriate GitHub service based on client type
+    // For CLI, we need to use CLI credentials to exchange the code
+    const githubService =
+      clientType === "cli" ? githubCliService : githubWebService;
+    const tempAuthService = new AuthService(
+      userService,
+      tokenService,
+      githubService,
+    );
+
+    // Exchange code for tokens using the appropriate GitHub app
+    const tokenData = await githubService.exchangeCode(
+      code as string,
       codeVerifier,
     );
 
-    // Clear OAuth cookies
-    res.clearCookie("oauth_state");
-    res.clearCookie("code_verifier");
+    if (!tokenData.access_token) {
+      throw new Error("Failed to get access token from GitHub");
+    }
 
-    // For web portal: set HTTP-only cookies
+    // Get user info from GitHub
+    const githubUser = await githubService.getUserInfo(tokenData.access_token);
+
+    // Find or create user in database
+    const user = await userService.findOrCreateUser(githubUser);
+
+    if (!user.is_active) {
+      throw new Error("User account is deactivated");
+    }
+
+    // Update last login
+    await userService.updateLastLogin(user.id);
+
+    // Generate app tokens
+    const accessToken = tokenService.generateAccessToken({
+      user_id: user.id,
+      username: user.username,
+      role: user.role,
+    });
+
+    const { token: refreshToken, hash: refreshHash } =
+      tokenService.generateRefreshToken();
+
+    // Save refresh token
+    await tokenService.saveRefreshToken(user.id, refreshHash);
+
+    const authResult = {
+      user: {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        avatar_url: user.avatar_url,
+        role: user.role,
+      },
+      access_token: accessToken,
+      refresh_token: refreshToken,
+    };
+
+    // Clear web cookies if they exist
+    if (req.cookies?.oauth_state) {
+      res.clearCookie("oauth_state");
+      res.clearCookie("code_verifier");
+    }
+
+    // Handle response based on client type
     if (clientType === "web") {
+      // Web: Set HTTP-only cookies and redirect
       res.cookie("access_token", authResult.access_token, {
         httpOnly: true,
         secure: process.env.NODE_ENV === "production",
@@ -110,17 +216,25 @@ export const handleGitHubCallback = async (req: Request, res: Response) => {
         sameSite: "strict",
       });
 
-      // Redirect to web portal
       return res.redirect(`${env.WEB_PORTAL_URL}/dashboard`);
     }
 
-    // For CLI: return JSON
+    // CLI: Return tokens in response body
     res.json({
       status: "success",
       data: authResult,
     });
   } catch (error: any) {
     console.error("OAuth callback error:", error);
+
+    // For web errors, redirect to error page
+    if (req.cookies?.oauth_state) {
+      return res.redirect(
+        `${env.WEB_PORTAL_URL}/login?error=${encodeURIComponent(error.message || "Authentication failed")}`,
+      );
+    }
+
+    // For CLI errors, return JSON
     res.status(500).json({
       status: "error",
       message: error.message || "Authentication failed",
@@ -199,7 +313,11 @@ export const logout = async (req: Request, res: Response) => {
 export const whoami = async (req: Request, res: Response) => {
   try {
     const authHeader = req.headers.authorization;
-    const token = authHeader?.substring(7);
+    const bearerToken = authHeader?.startsWith("Bearer ")
+      ? authHeader.substring(7)
+      : undefined;
+
+    const token = bearerToken || req.cookies?.access_token;
 
     if (!token) {
       return res.status(401).json({
@@ -239,13 +357,13 @@ export const whoami = async (req: Request, res: Response) => {
 
 export const signup = async (req: Request, res: Response) => {
   try {
-    const { email, password, username, full_name } = req.body;
+    const { email, password, username, full_name, role } = req.body;
 
     // Validate required fields
-    if (!email || !password || !username) {
+    if (!email || !password || !username || !role) {
       return res.status(400).json({
         status: "error",
-        message: "Missing required fields: email, password, username",
+        message: "Missing required fields: email, password, username, role",
       });
     }
 
@@ -309,7 +427,7 @@ export const signup = async (req: Request, res: Response) => {
       username: username.toLowerCase(),
       full_name: full_name || null,
       password_hash: passwordHash,
-      role: "analyst" as "analyst",
+      role: role as "analyst" | "admin",
       is_active: true,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),

@@ -87,6 +87,47 @@ export class AuthService {
     };
   }
 
+  // NEW: For CLI flow - exchange GitHub access token for app tokens
+  async exchangeGitHubToken(githubAccessToken: string): Promise<any> {
+    // Get user info from GitHub using the provided token
+    const githubUser = await this.githubService.getUserInfo(githubAccessToken);
+
+    // Find or create user in database
+    const user = await this.userService.findOrCreateUser(githubUser);
+
+    if (!user.is_active) {
+      throw new Error("User account is deactivated");
+    }
+
+    // Update last login
+    await this.userService.updateLastLogin(user.id);
+
+    // Generate app tokens
+    const accessToken = this.tokenService.generateAccessToken({
+      user_id: user.id,
+      username: user.username,
+      role: user.role,
+    });
+
+    const { token: refreshToken, hash: refreshHash } =
+      this.tokenService.generateRefreshToken();
+
+    // Save refresh token
+    await this.tokenService.saveRefreshToken(user.id, refreshHash);
+
+    return {
+      user: {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        avatar_url: user.avatar_url,
+        role: user.role,
+      },
+      access_token: accessToken,
+      refresh_token: refreshToken,
+    };
+  }
+
   async refreshTokens(refreshToken: string): Promise<any> {
     const refreshHash = this.tokenService.hashRefreshToken(refreshToken);
 
