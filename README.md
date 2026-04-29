@@ -217,7 +217,7 @@ All profile endpoints require authentication and `X-API-Version`.
 ### Signup
 
 ```bash
-curl -X POST https://hng-stage-1-production-7d03.up.railway.app/auth/signup \
+curl -X POST http://localhost:4000/auth/signup \
   -H "Content-Type: application/json" \
   -d '{
     "email": "admin@example.com",
@@ -230,7 +230,7 @@ curl -X POST https://hng-stage-1-production-7d03.up.railway.app/auth/signup \
 ### Login for API usage
 
 ```bash
-curl -X POSThttps://hng-stage-1-production-7d03.up.railway.app/auth/login \
+curl -X POST http://localhost:4000/auth/login \
   -H "Content-Type: application/json" \
   -d '{
     "email": "admin@example.com",
@@ -242,7 +242,7 @@ curl -X POSThttps://hng-stage-1-production-7d03.up.railway.app/auth/login \
 ### Create a profile
 
 ```bash
-curl -X POST https://hng-stage-1-production-7d03.up.railway.app/api/profiles \
+curl -X POST http://localhost:4000/api/profiles \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer YOUR_ACCESS_TOKEN" \
   -H "X-API-Version: 1" \
@@ -254,7 +254,7 @@ curl -X POST https://hng-stage-1-production-7d03.up.railway.app/api/profiles \
 ### List profiles with filters
 
 ```bash
-curl "https://hng-stage-1-production-7d03.up.railway.app/api/profiles?gender=male&country_id=NG&min_age=25&sort_by=age&order=desc&page=1&limit=10" \
+curl "http://localhost:4000/api/profiles?gender=male&country_id=NG&min_age=25&sort_by=age&order=desc&page=1&limit=10" \
   -H "Authorization: Bearer YOUR_ACCESS_TOKEN" \
   -H "X-API-Version: 1"
 ```
@@ -262,7 +262,7 @@ curl "https://hng-stage-1-production-7d03.up.railway.app/api/profiles?gender=mal
 ### Natural-language search
 
 ```bash
-curl "https://hng-stage-1-production-7d03.up.railway.app/api/profiles/search?q=young males from nigeria" \
+curl "http://localhost:4000/api/profiles/search?q=young males from nigeria" \
   -H "Authorization: Bearer YOUR_ACCESS_TOKEN" \
   -H "X-API-Version: 1"
 ```
@@ -270,7 +270,7 @@ curl "https://hng-stage-1-production-7d03.up.railway.app/api/profiles/search?q=y
 ### Export CSV
 
 ```bash
-curl "https://hng-stage-1-production-7d03.up.railway.app/api/profiles/export?format=csv&country_id=NG" \
+curl "http://localhost:4000/api/profiles/export?format=csv&country_id=NG" \
   -H "Authorization: Bearer YOUR_ACCESS_TOKEN" \
   -H "X-API-Version: 1" \
   --output profiles.csv
