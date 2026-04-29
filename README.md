@@ -1,220 +1,408 @@
 # Intelligence Query Engine
 
-A production-ready demographic intelligence API that collects, stores, and queries profile data with advanced filtering, sorting, pagination, and natural language query capabilities.
+An Express + TypeScript API for building and querying enriched demographic profiles. The service accepts a person's name, enriches it with public inference APIs, stores the resulting profile in local JSON storage, and exposes authenticated endpoints for filtering, natural-language search, CSV export, and profile management.
+
+## Overview
+
+This project now includes more than profile lookup. It also ships with:
+
+- JWT-based authentication
+- GitHub OAuth for web and CLI clients
+- role-based access control for `admin` and `analyst` users
+- API version enforcement with `X-API-Version`
+- request rate limiting
+- request and error logging
+- file-based persistence for profiles, users, and refresh tokens
 
 ## Features
 
-- ✅ **Profile Management** - Create, read, and delete profiles
-- ✅ **External API Integration** - Fetches gender, age, and nationality data from public APIs
-- ✅ **Advanced Filtering** - Filter by gender, age group, country, age ranges, and probability scores
-- ✅ **Sorting** - Sort by age, creation date, or gender probability
-- ✅ **Pagination** - Efficient data retrieval with configurable page sizes (max 50)
-- ✅ **Natural Language Queries** - Query using plain English (no AI/LLM required)
-- ✅ **Data Persistence** - JSON file-based storage with automatic saving
-- ✅ **Idempotent Seeding** - No duplicate records when re-running seeds
+- Create enriched profiles from a single `name` input
+- Fetch inferred gender, age, and nationality from external APIs
+- Persist profiles locally in `data.json`
+- Filter profiles by gender, age group, age range, country, and confidence thresholds
+- Sort and paginate profile results
+- Search profiles with rule-based natural-language queries
+- Export filtered profiles as CSV
+- Support signup/login with email and password
+- Support GitHub OAuth with PKCE for web and CLI clients
+- Protect routes with authentication, RBAC, and API versioning
 
-## API Endpoints
+## Tech Stack
 
-### 1. Create Profile
+- Node.js
+- TypeScript
+- Express
+- JWT
+- bcrypt
+- cookie-parser
+- cors
+- helmet
+- json2csv
+- uuid
 
-POST /api/profiles
-Content-Type: application/json
+## Architecture
 
-{
-"name": "John Doe"
-}
+### Data flow
 
-### 2. Get Profile by ID
+1. A client authenticates with local credentials or GitHub OAuth.
+2. The client calls protected profile endpoints with a Bearer token or HTTP-only cookie.
+3. When a profile is created, the API queries:
+   - `genderize.io`
+   - `agify.io`
+   - `nationalize.io`
+4. The enriched profile is stored in `data.json`.
+5. Read endpoints apply filtering, sorting, pagination, NLP parsing, or CSV export on stored data.
 
-GET /api/profiles/:id
+### Persistence
 
-### 3. List Profiles with Filters
+This service uses local file storage rather than a relational database.
 
-GET /api/profiles?gender=male&country_id=NG&min_age=25&sort_by=age&order=desc&page=1&limit=10
+- Profiles are stored in `data.json`
+- Users are stored in `data.json`
+- Refresh tokens are stored in `data.json`
+- Request and error logs are written to `logs/`
 
-**Supported Filters:**
+That makes local setup simple, but it also means this implementation is best suited to small deployments, demos, and controlled environments.
 
-- `gender` - male/female
-- `age_group` - child/teenager/adult/senior
-- `country_id` - ISO country code (NG, KE, ZA, etc.)
-- `min_age` - Minimum age
-- `max_age` - Maximum age
-- `min_gender_probability` - 0-1 confidence score
-- `min_country_probability` - 0-1 confidence score
-- `sort_by` - age/created_at/gender_probability
-- `order` - asc/desc
-- `page` - Page number (default: 1)
-- `limit` - Items per page (default: 10, max: 50)
+## Project Structure
 
-### 4. Natural Language Search
+```text
+src/
+  config/         Environment loading and validation
+  controllers/    Route handlers
+  middleware/     Auth, RBAC, rate limiting, logging, versioning
+  routes/         Express routers
+  services/       Auth, GitHub OAuth, token, data, NLP, external API clients
+  types/          Shared TypeScript types
+  utils/          Filtering, sorting, pagination, validation helpers
+  server.ts       Application entry point
+data.json         Local persisted data store
+logs/             Access and error logs
+```
 
-GET /api/profiles/search?q=young males from nigeria
-
-**Supported Query Patterns:**
-
-- `young males from nigeria` → gender=male, min_age=16, max_age=24, country_id=NG
-- `females above 30` → gender=female, min_age=30
-- `people from angola` → country_id=AO
-- `adult males from kenya` → gender=male, age_group=adult, country_id=KE
-- `teenagers` → age_group=teenager
-- `seniors from south africa` → age_group=senior, country_id=ZA
-
-### 5. Delete Profile
-
-DELETE /api/profiles/:id
-
-## Setup Instructions
+## Getting Started
 
 ### Prerequisites
 
-- Node.js 18+
-- npm or yarn
+- Node.js 18 or later
+- npm
+- GitHub OAuth app credentials if you want GitHub login enabled
 
 ### Installation
 
-1. **Clone the repository**
+**Clone the repository**
+
+```bash
    git clone https://github.com/Kingsley-codes/HNG-stage-1.git
    cd HNG-stage-1
+```
 
-2. **Install dependencies**
-   npm install
+**Install dependencies**
 
-3. **Build the project**
-   npm run build
+```bash
+npm install
+```
 
-4. **Seed the database**
+### Environment Variables
 
-# First, place your seed-data.json in the root directory
+Create a `.env` file in the project root.
 
-npm run seed
+| Variable                   | Required                | Description                                            |
+| -------------------------- | ----------------------- | ------------------------------------------------------ |
+| `PORT`                     | Yes                     | Port the API listens on                                |
+| `NODE_ENV`                 | No                      | Runtime mode, usually `development` or `production`    |
+| `JWT_ACCESS_SECRET`        | Yes                     | Secret used to sign access tokens                      |
+| `JWT_REFRESH_SECRET`       | Yes                     | Secret used to hash/validate refresh token state       |
+| `ACCESS_TOKEN_EXPIRY`      | No                      | Access token TTL in seconds                            |
+| `REFRESH_TOKEN_EXPIRY`     | No                      | Refresh token TTL in seconds                           |
+| `GITHUB_CLIENT_ID`         | Yes for GitHub web auth | GitHub OAuth client ID for the web app                 |
+| `GITHUB_CLIENT_SECRET`     | Yes for GitHub web auth | GitHub OAuth client secret for the web app             |
+| `GITHUB_REDIRECT_URI`      | Yes for GitHub web auth | OAuth callback URI for the web app                     |
+| `GITHUB_CLI_CLIENT_ID`     | Yes for GitHub CLI auth | GitHub OAuth client ID for the CLI app                 |
+| `GITHUB_CLI_CLIENT_SECRET` | Yes for GitHub CLI auth | GitHub OAuth client secret for the CLI app             |
+| `GITHUB_CLI_REDIRECT_URI`  | Yes for GitHub CLI auth | OAuth callback URI for the CLI app                     |
+| `WEB_PORTAL_URL`           | No                      | Allowed frontend origin and post-login redirect target |
+| `CLI_CALLBACK_PORT`        | No                      | Allowed localhost origin for CLI callback flows        |
+| `RATE_LIMIT_AUTH`          | No                      | Intended auth rate limit setting                       |
+| `RATE_LIMIT_DEFAULT`       | No                      | Intended default rate limit setting                    |
+| `API_VERSION`              | No                      | Expected value for `X-API-Version`                     |
 
-5. **Start the server**
-   npm start
+Notes:
 
-# For development with auto-reload:
+- The current env validation requires `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `JWT_ACCESS_SECRET`, and `JWT_REFRESH_SECRET` at startup.
 
+### Run in Development
+
+```bash
 npm run dev
+```
 
-## Testing the API
+### Build
 
-Example Requests
-bash
+```bash
+npm run build
+```
 
-# Create a profile
+### Start Production Build
 
-curl -X POST https://hng-stage-1-production-db6d.up.railway.app/api/profiles \
- -H "Content-Type: application/json" \
- -d '{"name":"John Doe"}'
+```bash
+npm start
+```
 
-# Get all Nigerian males aged 25+
+## Authentication and Authorization
 
-curl "https://hng-stage-1-production-db6d.up.railway.app/api/profiles?gender=male&country_id=NG&min_age=25"
+### Supported auth modes
 
-# Natural language search
+- Email/password signup and login
+- GitHub OAuth with PKCE for web clients
+- GitHub OAuth with PKCE for CLI clients
+- Access token delivery through Bearer auth or HTTP-only cookies
+- Refresh token rotation via `/auth/refresh`
 
-curl "https://hng-stage-1-production-db6d.up.railway.app/api/profiles/search?q=young females from kenya"
+### Roles
 
-# Get profiles sorted by age
+- `analyst`: read-only access to profile endpoints
+- `admin`: full access, including create and delete operations
 
-curl "https://hng-stage-1-production-db6d.up.railway.app/api/profiles?sort_by=age&order=desc&limit=20"
+### Protected profile routes
 
-# Pagination
+All `/api/profiles` routes require:
 
-curl "https://hng-stage-1-production-db6d.up.railway.app/api/profiles?page=2&limit=10"
+- a valid access token
+- the `X-API-Version` header
+- passing the default rate limiter
 
-# Response Formats
+Example header:
 
-## Success Response (List)
+```http
+X-API-Version: 1
+```
 
-**json**
+## API Endpoints
+
+### Health
+
+| Method | Endpoint  | Description                     |
+| ------ | --------- | ------------------------------- |
+| `GET`  | `/`       | API root summary                |
+| `GET`  | `/health` | Health check with profile count |
+
+### Auth
+
+| Method | Endpoint                | Description                             |
+| ------ | ----------------------- | --------------------------------------- |
+| `POST` | `/auth/signup`          | Create a local user                     |
+| `POST` | `/auth/login`           | Login with email and password           |
+| `POST` | `/auth/refresh`         | Exchange a refresh token for new tokens |
+| `POST` | `/auth/logout`          | Revoke refresh token and clear cookies  |
+| `GET`  | `/auth/me`              | Return current authenticated user       |
+| `GET`  | `/auth/github`          | Start GitHub OAuth flow                 |
+| `GET`  | `/auth/github/callback` | Complete GitHub OAuth flow              |
+
+### Profiles
+
+All profile endpoints require authentication and `X-API-Version`.
+
+| Method   | Endpoint                          | Role               | Description                                         |
+| -------- | --------------------------------- | ------------------ | --------------------------------------------------- |
+| `POST`   | `/api/profiles`                   | `admin`            | Create an enriched profile from a name              |
+| `GET`    | `/api/profiles`                   | `analyst`, `admin` | List profiles with filters, sorting, and pagination |
+| `GET`    | `/api/profiles/search?q=...`      | `analyst`, `admin` | Rule-based natural-language search                  |
+| `GET`    | `/api/profiles/export?format=csv` | `analyst`, `admin` | Export filtered profiles as CSV                     |
+| `GET`    | `/api/profiles/:id`               | `analyst`, `admin` | Fetch a profile by ID                               |
+| `DELETE` | `/api/profiles/:id`               | `admin`            | Delete a profile                                    |
+
+## Request Examples
+
+### Signup
+
+```bash
+curl -X POST https://hng-stage-1-production-7d03.up.railway.app/auth/signup \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "admin@example.com",
+    "username": "admin",
+    "password": "StrongPass1!",
+    "role": "admin"
+  }'
+```
+
+### Login for API usage
+
+```bash
+curl -X POSThttps://hng-stage-1-production-7d03.up.railway.app/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "admin@example.com",
+    "password": "StrongPass1!",
+    "clientType": "cli"
+  }'
+```
+
+### Create a profile
+
+```bash
+curl -X POST https://hng-stage-1-production-7d03.up.railway.app/api/profiles \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_ACCESS_TOKEN" \
+  -H "X-API-Version: 1" \
+  -d '{
+    "name": "John Doe"
+  }'
+```
+
+### List profiles with filters
+
+```bash
+curl "https://hng-stage-1-production-7d03.up.railway.app/api/profiles?gender=male&country_id=NG&min_age=25&sort_by=age&order=desc&page=1&limit=10" \
+  -H "Authorization: Bearer YOUR_ACCESS_TOKEN" \
+  -H "X-API-Version: 1"
+```
+
+### Natural-language search
+
+```bash
+curl "https://hng-stage-1-production-7d03.up.railway.app/api/profiles/search?q=young males from nigeria" \
+  -H "Authorization: Bearer YOUR_ACCESS_TOKEN" \
+  -H "X-API-Version: 1"
+```
+
+### Export CSV
+
+```bash
+curl "https://hng-stage-1-production-7d03.up.railway.app/api/profiles/export?format=csv&country_id=NG" \
+  -H "Authorization: Bearer YOUR_ACCESS_TOKEN" \
+  -H "X-API-Version: 1" \
+  --output profiles.csv
+```
+
+## Filtering, Sorting, and Pagination
+
+### Supported filters
+
+- `gender`
+- `age_group`
+- `country_id`
+- `min_age`
+- `max_age`
+- `min_gender_probability`
+- `min_country_probability`
+
+### Supported sorting
+
+- `age`
+- `created_at`
+- `gender_probability`
+
+### Pagination
+
+- `page` defaults to `1`
+- `limit` defaults to `10`
+- `limit` is capped at `50`
+
+## Natural-Language Search
+
+The NLP layer is rule-based, not LLM-based. It currently supports patterns such as:
+
+- `young males`
+- `young females`
+- `females above 30`
+- `people from nigeria`
+- `adult males from kenya`
+- `teenagers`
+- `seniors`
+- `male and female teenagers above 17`
+
+Country support in the parser is currently limited to a small mapping that includes names such as Nigeria, Kenya, South Africa, Angola, and Ghana.
+
+## Response Shape
+
+### Successful list response
+
+```json
 {
-"status": "success",
-"page": 1,
-"limit": 10,
-"total": 2026,
-"data": [
+  "status": "success",
+  "page": 1,
+  "limit": 10,
+  "total": 1,
+  "total_pages": 1,
+  "links": {
+    "self": "/api/profiles?page=1&limit=10",
+    "next": null,
+    "prev": null
+  },
+  "data": [
+    {
+      "id": "019...",
+      "name": "John Doe",
+      "gender": "male",
+      "age": 28,
+      "age_group": "adult",
+      "country_id": "NG",
+      "country_name": "Nigeria"
+    }
+  ]
+}
+```
+
+### Successful single resource response
+
+```json
 {
-"id": "uuid-v7",
-"name": "John Doe",
-"gender": "male",
-"age": 28,
-"age_group": "adult",
-"country_id": "NG",
-"country_name": "Nigeria"
+  "status": "success",
+  "data": {
+    "id": "019...",
+    "name": "John Doe",
+    "gender": "male",
+    "gender_probability": 0.99,
+    "sample_size": 1234,
+    "age": 28,
+    "age_group": "adult",
+    "country_id": "NG",
+    "country_name": "Nigeria",
+    "country_probability": 0.87,
+    "created_at": "2026-04-29T09:00:00.000Z"
+  }
 }
-]
-}
+```
 
-## Error Response
+### Error response
 
-**json**
+```json
 {
-"status": "error",
-"message": "Unable to interpret query"
+  "status": "error",
+  "message": "Invalid or expired token"
 }
+```
 
-# Performance Considerations
+## Security Notes
 
-- In-memory processing with efficient array operations
-- Pagination limits response sizes to max 50 records
-- Indexed lookups via nameIndex Map for O(1) profile retrieval
-- No unnecessary database scans - all operations are O(n) where n is filtered set size
+- `helmet` is enabled globally
+- CORS is restricted to `WEB_PORTAL_URL` and the configured localhost CLI callback origin
+- Profile routes require JWT authentication
+- Access control is role-based
+- Refresh tokens are hashed before storage
+- Auth and profile routes are rate-limited
+- Cookie-based auth is supported for web clients
 
-# Natural Language Query Rules
+The repository also includes CSRF helper middleware for cookie-based flows, but it is not currently mounted in `src/server.ts`.
 
-The parser uses rule-based matching (no AI/LLMs) with the following mappings:
+## Logging
 
-- Gender: male, female, man, woman, boy, girl, etc.
-- Age Groups: child, teenager, adult, senior
-- Age Ranges: "young" → 16-24 years
-- Comparisons: "above X", "over X", "below X", "under X"
-- Countries: Supports common names and demonyms
-- Combinations: "male and female" removes gender filter
+Request and response logs are written to daily files in `logs/`. Errors are written to separate daily error logs.
 
-# Error Codes
+## Operational Notes
 
-- 400 - Missing or empty parameter
-- 422 - Invalid parameter type
-- 404 - Profile not found
-- 500 - Internal server error
-- 502 - External API error
+- The app starts even if no admin exists, but it logs a reminder to create one.
+- Creating a profile depends on public third-party APIs being reachable and returning usable data.
+- The local JSON database is simple and convenient, but not ideal for concurrent or large-scale production workloads.
 
-# Database Schema
+## Known Gaps
 
-Field Type Description
-id UUID v7 Primary key
-name string Person's full name (unique)
-gender string "male" or "female"
-gender_probability float Confidence score (0-1)
-sample_size int Number of samples
-age int Exact age
-age_group string child/teenager/adult/senior
-country_id string(2) ISO country code
-country_name string Full country name
-country_probability float Confidence score (0-1)
-created_at timestamp ISO 8601 UTC
+- `package.json` references `src/seed.ts` and `src/force-seed.ts`, but those files are not currently present in this repository snapshot.
+- The rate-limit values in middleware are hard-coded today, even though environment variables exist for them.
+- The natural-language parser supports a focused set of patterns rather than open-ended query interpretation.
 
-# License
+## License
 
-## MIT
-
-## Deployment URL
-
-**Public API Base URL:** `https://hng-stage-1-production-6f26.up.railway.app`
-
-## Summary
-
-This implementation provides:
-
-1. **Complete filtering system** with 7 filter types
-2. **Combined filters** - all conditions must match
-3. **Sorting** on 3 fields with asc/desc
-4. **Pagination** with page/limit (max 50)
-5. **Natural language parsing** with 20+ query patterns
-6. **Rule-based parsing** - no AI/LLM dependencies
-7. **Validation** for all query parameters
-8. **Performance** optimized for 2026+ records
-9. **Idempotent seeding** - no duplicates
-10. **Complete error handling** with proper status codes
-
-The system is production-ready and can be deployed immediately to any Node.js hosting platform.
+MIT

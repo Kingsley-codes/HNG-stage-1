@@ -21,7 +21,7 @@ app.use(
     origin: (origin, callback) => {
       const allowedOrigins = [
         process.env.WEB_PORTAL_URL,
-        `http://localhost:${process.env.CLI_CALLBACK_PORT || 3001}`,
+        `http://localhost:${process.env.CLI_CALLBACK_PORT}`,
       ];
       if (!origin || allowedOrigins.includes(origin)) {
         callback(null, true);
