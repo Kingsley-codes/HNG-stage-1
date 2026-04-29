@@ -220,7 +220,7 @@ export const handleGitHubCallback = async (req: Request, res: Response) => {
     }
 
     // CLI: Return tokens in response body
-    res.json({
+    return res.json({
       status: "success",
       data: authResult,
     });
@@ -235,7 +235,7 @@ export const handleGitHubCallback = async (req: Request, res: Response) => {
     }
 
     // For CLI errors, return JSON
-    res.status(500).json({
+    return res.status(500).json({
       status: "error",
       message: error.message || "Authentication failed",
     });
@@ -244,18 +244,18 @@ export const handleGitHubCallback = async (req: Request, res: Response) => {
 
 export const refreshToken = async (req: Request, res: Response) => {
   try {
-    const { refresh_token } = req.body;
+    const refreshToken = req.body?.refresh_token || req.cookies?.refresh_token;
 
-    if (!refresh_token) {
+    if (!refreshToken) {
       return res.status(400).json({
         status: "error",
-        message: "Refresh token required",
+        message: "Refresh token required in request body or cookie",
       });
     }
 
-    const tokens = await authService.refreshTokens(refresh_token);
+    const tokens = await authService.refreshTokens(refreshToken);
 
-    // Update cookies if from web
+    // Update cookies when the web client authenticated with HTTP-only cookies.
     if (req.cookies?.refresh_token) {
       res.cookie("access_token", tokens.access_token, {
         httpOnly: true,
@@ -272,12 +272,12 @@ export const refreshToken = async (req: Request, res: Response) => {
       });
     }
 
-    res.json({
+    return res.status(200).json({
       status: "success",
       data: tokens,
     });
   } catch (error: any) {
-    res.status(401).json({
+    return res.status(401).json({
       status: "error",
       message: error.message || "Invalid refresh token",
     });
@@ -297,13 +297,13 @@ export const logout = async (req: Request, res: Response) => {
     res.clearCookie("refresh_token");
     res.clearCookie("oauth_state");
 
-    res.json({
+    return res.json({
       status: "success",
       message: "Logged out successfully",
     });
   } catch (error) {
     console.error("Logout error:", error);
-    res.status(500).json({
+    return res.status(500).json({
       status: "error",
       message: "Logout failed",
     });
@@ -337,7 +337,7 @@ export const whoami = async (req: Request, res: Response) => {
 
     const user = await authService.getUserFromId(payload.user_id);
 
-    res.json({
+    return res.json({
       status: "success",
       data: {
         id: user.id,
@@ -348,7 +348,7 @@ export const whoami = async (req: Request, res: Response) => {
       },
     });
   } catch (error) {
-    res.status(500).json({
+    return res.status(500).json({
       status: "error",
       message: "Failed to get user info",
     });
