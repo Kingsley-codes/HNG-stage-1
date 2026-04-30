@@ -27,8 +27,7 @@ export class AuthService {
     const state = `${this.githubService.generateState()}:${clientType}`;
     const { codeVerifier, codeChallenge } = this.githubService.generatePKCE();
 
-    // Generate URL WITHOUT the codeChallenge for GitHub (PKCE is only in token exchange)
-    const url = this.githubService.getAuthorizationUrl(state);
+    const url = this.githubService.getAuthorizationUrl(state, codeChallenge);
 
     return { url, state: state, codeVerifier };
   }

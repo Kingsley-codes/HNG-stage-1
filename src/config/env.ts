@@ -33,7 +33,7 @@ export const env = {
   RATE_LIMIT_DEFAULT: parseInt(process.env.RATE_LIMIT_DEFAULT || "60"),
 
   // API Version
-  API_VERSION: process.env.API_VERSION || "1",
+  API_VERSION: process.env.API_VERSION || "1.0",
 };
 
 // Validate required env vars

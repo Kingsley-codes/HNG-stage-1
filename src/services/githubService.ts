@@ -26,12 +26,14 @@ export class GitHubService {
     return crypto.randomBytes(16).toString("hex");
   }
 
-  getAuthorizationUrl(state: string): string {
+  getAuthorizationUrl(state: string, codeChallenge: string): string {
     const params = new URLSearchParams({
       client_id: this.clientId,
       redirect_uri: this.redirectUri,
       scope: "read:user user:email",
       state: state,
+      code_challenge: codeChallenge,
+      code_challenge_method: "S256",
     });
 
     return `https://github.com/login/oauth/authorize?${params.toString()}`;

@@ -6,6 +6,7 @@ import { TokenService } from "../services/tokenService.js";
 import { UserService } from "../services/userService.js";
 import { GitHubService } from "../services/githubService.js";
 import { db } from "../services/database.js";
+import { oauthSessionService } from "../services/oauthSessionService.js";
 import bcrypt from "bcrypt";
 import crypto from "crypto";
 
@@ -31,9 +32,64 @@ const authService = new AuthService(
   githubWebService,
 );
 
+const isProduction = env.NODE_ENV === "production";
+
+const oauthCookieOptions = {
+  httpOnly: true,
+  secure: isProduction,
+  maxAge: 10 * 60 * 1000,
+  sameSite: "lax" as const,
+  path: "/",
+};
+
+const sessionCookieOptions = {
+  httpOnly: true,
+  secure: isProduction,
+  maxAge: env.ACCESS_TOKEN_EXPIRY * 1000,
+  sameSite: isProduction ? ("none" as const) : ("lax" as const),
+  path: "/",
+};
+
+const refreshCookieOptions = {
+  httpOnly: true,
+  secure: isProduction,
+  maxAge: env.REFRESH_TOKEN_EXPIRY * 1000,
+  sameSite: isProduction ? ("none" as const) : ("lax" as const),
+  path: "/",
+};
+
+const clearOAuthCookies = (res: Response) => {
+  res.clearCookie("oauth_state", oauthCookieOptions);
+  res.clearCookie("code_verifier", oauthCookieOptions);
+};
+
+const clearSessionCookies = (res: Response) => {
+  res.clearCookie("access_token", sessionCookieOptions);
+  res.clearCookie("refresh_token", refreshCookieOptions);
+};
+
+const setBrowserCorsHeaders = (req: Request, res: Response) => {
+  const origin = req.headers.origin;
+
+  if (origin) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Access-Control-Allow-Credentials", "true");
+    res.setHeader("Vary", "Origin");
+  }
+};
+
+const resolveLoginClientType = (req: Request): "web" | "cli" => {
+  if (req.body?.clientType === "web" || req.body?.clientType === "cli") {
+    return req.body.clientType;
+  }
+
+  return req.headers.origin ? "web" : "cli";
+};
+
 // Modified: Accept code_challenge from query parameters
 export const initiateGitHubAuth = async (req: Request, res: Response) => {
   try {
+    setBrowserCorsHeaders(req, res);
     const clientType = req.query.client === "cli" ? "cli" : "web";
 
     // Use appropriate GitHub service based on client type
@@ -47,22 +103,16 @@ export const initiateGitHubAuth = async (req: Request, res: Response) => {
 
     const { url, state, codeVerifier } =
       await tempAuthService.initiateGitHubAuth(clientType);
+    oauthSessionService.createSession(
+      state,
+      codeVerifier,
+      clientType as "web" | "cli",
+    );
 
     // For web clients, redirect directly to GitHub
     if (clientType === "web") {
-      res.cookie("oauth_state", state, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        maxAge: 10 * 60 * 1000,
-        sameSite: "lax",
-      });
-
-      res.cookie("code_verifier", codeVerifier, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        maxAge: 10 * 60 * 1000,
-        sameSite: "lax",
-      });
+      res.cookie("oauth_state", state, oauthCookieOptions);
+      res.cookie("code_verifier", codeVerifier, oauthCookieOptions);
 
       // Redirect to GitHub authorization
       return res.redirect(url);
@@ -89,9 +139,17 @@ export const initiateGitHubAuth = async (req: Request, res: Response) => {
 // Unified callback handler - handles both web and CLI flows
 export const handleGitHubCallback = async (req: Request, res: Response) => {
   try {
+    setBrowserCorsHeaders(req, res);
     const { code, state } = req.query;
     let codeVerifier: string | undefined;
-    let clientType: string;
+    let clientType: "web" | "cli";
+
+    if (!state || typeof state !== "string") {
+      return res.status(400).json({
+        status: "error",
+        message: "Invalid state parameter",
+      });
+    }
 
     // Determine if this is a CLI callback (code_verifier in body/query) or web (from cookies)
     // CLI will send code_verifier and client_type in the request
@@ -99,17 +157,10 @@ export const handleGitHubCallback = async (req: Request, res: Response) => {
       // CLI flow: code_verifier is provided by the client
       codeVerifier = (req.body.code_verifier ||
         req.query.code_verifier) as string;
-      clientType = req.body.client_type || req.query.client_type || "cli";
-
-      // For CLI, we don't need to validate state from cookies
-      // But we still validate the state parameter matches what was sent
-      // (CLI should store the state and send it back)
-      if (!state) {
-        return res.status(400).json({
-          status: "error",
-          message: "State parameter required for CLI authentication",
-        });
-      }
+      clientType =
+        req.body.client_type === "web" || req.query.client_type === "web"
+          ? "web"
+          : "cli";
     } else {
       // Web flow: code_verifier comes from cookies
       const storedState = req.cookies?.oauth_state;
@@ -122,8 +173,7 @@ export const handleGitHubCallback = async (req: Request, res: Response) => {
         });
       }
 
-      const [, extractedType] = (state as string).split(":");
-      clientType = extractedType;
+      clientType = "web";
     }
 
     if (!code || typeof code !== "string") {
@@ -137,6 +187,19 @@ export const handleGitHubCallback = async (req: Request, res: Response) => {
       return res.status(400).json({
         status: "error",
         message: "Missing code verifier",
+      });
+    }
+
+    const session = oauthSessionService.validateSession(
+      state,
+      codeVerifier,
+      clientType,
+    );
+
+    if (!session) {
+      return res.status(400).json({
+        status: "error",
+        message: "Invalid or expired OAuth state",
       });
     }
 
@@ -200,26 +263,16 @@ export const handleGitHubCallback = async (req: Request, res: Response) => {
 
     // Clear web cookies if they exist
     if (req.cookies?.oauth_state) {
-      res.clearCookie("oauth_state");
-      res.clearCookie("code_verifier");
+      clearOAuthCookies(res);
     }
+
+    oauthSessionService.consumeSession(state);
 
     // Handle response based on client type
     if (clientType === "web") {
       // Web: Set HTTP-only cookies and redirect
-      res.cookie("access_token", authResult.access_token, {
-        httpOnly: true,
-        secure: true,
-        maxAge: env.ACCESS_TOKEN_EXPIRY * 1000,
-        sameSite: "none",
-      });
-
-      res.cookie("refresh_token", authResult.refresh_token, {
-        httpOnly: true,
-        secure: true,
-        maxAge: env.REFRESH_TOKEN_EXPIRY * 1000,
-        sameSite: "none",
-      });
+      res.cookie("access_token", authResult.access_token, sessionCookieOptions);
+      res.cookie("refresh_token", authResult.refresh_token, refreshCookieOptions);
 
       return res.redirect(`${env.WEB_PORTAL_URL}/dashboard`);
     }
@@ -232,8 +285,13 @@ export const handleGitHubCallback = async (req: Request, res: Response) => {
   } catch (error: any) {
     console.error("OAuth callback error:", error);
 
+    if (typeof req.query.state === "string") {
+      oauthSessionService.consumeSession(req.query.state);
+    }
+
     // For web errors, redirect to error page
     if (req.cookies?.oauth_state) {
+      clearOAuthCookies(res);
       return res.redirect(
         `${env.WEB_PORTAL_URL}/login?error=${encodeURIComponent(error.message || "Authentication failed")}`,
       );
@@ -262,19 +320,8 @@ export const refreshToken = async (req: Request, res: Response) => {
 
     // Update cookies when the web client authenticated with HTTP-only cookies.
     if (req.cookies?.refresh_token) {
-      res.cookie("access_token", tokens.access_token, {
-        httpOnly: true,
-        secure: true,
-        maxAge: env.ACCESS_TOKEN_EXPIRY * 1000,
-        sameSite: "none",
-      });
-
-      res.cookie("refresh_token", tokens.refresh_token, {
-        httpOnly: true,
-        secure: true,
-        maxAge: env.REFRESH_TOKEN_EXPIRY * 1000,
-        sameSite: "none",
-      });
+      res.cookie("access_token", tokens.access_token, sessionCookieOptions);
+      res.cookie("refresh_token", tokens.refresh_token, refreshCookieOptions);
     }
 
     return res.status(200).json({
@@ -291,16 +338,14 @@ export const refreshToken = async (req: Request, res: Response) => {
 
 export const logout = async (req: Request, res: Response) => {
   try {
-    const refreshToken = req.body.refresh_token || req.cookies?.refresh_token;
+    const refreshToken = req.body?.refresh_token || req.cookies?.refresh_token;
 
     if (refreshToken) {
       await authService.logout(refreshToken);
     }
 
-    // Clear cookies
-    res.clearCookie("access_token");
-    res.clearCookie("refresh_token");
-    res.clearCookie("oauth_state");
+    clearSessionCookies(res);
+    clearOAuthCookies(res);
 
     return res.json({
       status: "success",
@@ -469,7 +514,8 @@ export const signup = async (req: Request, res: Response) => {
 // ========== NEW: Email/Password Login ==========
 export const login = async (req: Request, res: Response) => {
   try {
-    const { email, password, clientType = "web" } = req.body;
+    const { email, password } = req.body;
+    const clientType = resolveLoginClientType(req);
 
     // Validate required fields
     if (!email || !password) {
@@ -532,19 +578,8 @@ export const login = async (req: Request, res: Response) => {
 
     // For web portal: set HTTP-only cookies
     if (clientType === "web") {
-      res.cookie("access_token", accessToken, {
-        httpOnly: true,
-        secure: true,
-        maxAge: env.ACCESS_TOKEN_EXPIRY * 1000,
-        sameSite: "none",
-      });
-
-      res.cookie("refresh_token", refreshToken, {
-        httpOnly: true,
-        secure: true,
-        maxAge: env.REFRESH_TOKEN_EXPIRY * 1000,
-        sameSite: "none",
-      });
+      res.cookie("access_token", accessToken, sessionCookieOptions);
+      res.cookie("refresh_token", refreshToken, refreshCookieOptions);
 
       // Return success without tokens in body for web
       return res.json({

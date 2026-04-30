@@ -1,5 +1,6 @@
 // src/middleware/rateLimit.ts
 import { Request, Response, NextFunction } from "express";
+import { env } from "../config/env.js";
 
 interface RateLimitEntry {
   count: number;
@@ -65,22 +66,36 @@ class RateLimiter {
 }
 
 // Rate limiters
-const authLimiter = new RateLimiter(60 * 1000, 10); // 10 requests per minute
-const defaultLimiter = new RateLimiter(60 * 1000, 60); // 60 requests per minute
+const authLimiter = new RateLimiter(60 * 1000, env.RATE_LIMIT_AUTH);
+const defaultLimiter = new RateLimiter(60 * 1000, env.RATE_LIMIT_DEFAULT);
+
+const getRequestKey = (req: Request) => {
+  const forwardedFor = req.headers["x-forwarded-for"];
+
+  if (typeof forwardedFor === "string" && forwardedFor.trim().length > 0) {
+    return forwardedFor.split(",")[0]!.trim();
+  }
+
+  return req.ip || "unknown";
+};
 
 export const authRateLimiter = (
   req: Request,
   res: Response,
   next: NextFunction,
 ) => {
-  const key = req.ip || "unknown";
+  const key = getRequestKey(req);
   const result = authLimiter.isRateLimited(key);
 
-  res.setHeader("X-RateLimit-Limit", "10");
+  res.setHeader("X-RateLimit-Limit", String(env.RATE_LIMIT_AUTH));
   res.setHeader("X-RateLimit-Remaining", result.remaining);
   res.setHeader("X-RateLimit-Reset", Math.ceil(result.resetTime / 1000));
 
   if (result.limited) {
+    res.setHeader(
+      "Retry-After",
+      String(Math.ceil((result.resetTime - Date.now()) / 1000)),
+    );
     return res.status(429).json({
       status: "error",
       message: "Too many auth requests, please try again later",
@@ -97,14 +112,18 @@ export const defaultRateLimiter = (
   next: NextFunction,
 ) => {
   // Use user ID if authenticated, otherwise IP
-  const key = (req as any).user?.user_id || req.ip || "unknown";
+  const key = (req as any).user?.user_id || getRequestKey(req);
   const result = defaultLimiter.isRateLimited(key);
 
-  res.setHeader("X-RateLimit-Limit", "60");
+  res.setHeader("X-RateLimit-Limit", String(env.RATE_LIMIT_DEFAULT));
   res.setHeader("X-RateLimit-Remaining", result.remaining);
   res.setHeader("X-RateLimit-Reset", Math.ceil(result.resetTime / 1000));
 
   if (result.limited) {
+    res.setHeader(
+      "Retry-After",
+      String(Math.ceil((result.resetTime - Date.now()) / 1000)),
+    );
     return res.status(429).json({
       status: "error",
       message: "Too many requests, please try again later",
