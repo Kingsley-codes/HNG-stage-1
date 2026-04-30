@@ -209,16 +209,16 @@ export const handleGitHubCallback = async (req: Request, res: Response) => {
       // Web: Set HTTP-only cookies and redirect
       res.cookie("access_token", authResult.access_token, {
         httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
+        secure: true,
         maxAge: env.ACCESS_TOKEN_EXPIRY * 1000,
-        sameSite: "strict",
+        sameSite: "none",
       });
 
       res.cookie("refresh_token", authResult.refresh_token, {
         httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
+        secure: true,
         maxAge: env.REFRESH_TOKEN_EXPIRY * 1000,
-        sameSite: "strict",
+        sameSite: "none",
       });
 
       return res.redirect(`${env.WEB_PORTAL_URL}/dashboard`);
@@ -264,16 +264,16 @@ export const refreshToken = async (req: Request, res: Response) => {
     if (req.cookies?.refresh_token) {
       res.cookie("access_token", tokens.access_token, {
         httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
+        secure: true,
         maxAge: env.ACCESS_TOKEN_EXPIRY * 1000,
-        sameSite: "strict",
+        sameSite: "none",
       });
 
       res.cookie("refresh_token", tokens.refresh_token, {
         httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
+        secure: true,
         maxAge: env.REFRESH_TOKEN_EXPIRY * 1000,
-        sameSite: "strict",
+        sameSite: "none",
       });
     }
 
@@ -534,16 +534,16 @@ export const login = async (req: Request, res: Response) => {
     if (clientType === "web") {
       res.cookie("access_token", accessToken, {
         httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
+        secure: true,
         maxAge: env.ACCESS_TOKEN_EXPIRY * 1000,
-        sameSite: "strict",
+        sameSite: "none",
       });
 
       res.cookie("refresh_token", refreshToken, {
         httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
+        secure: true,
         maxAge: env.REFRESH_TOKEN_EXPIRY * 1000,
-        sameSite: "strict",
+        sameSite: "none",
       });
 
       // Return success without tokens in body for web
