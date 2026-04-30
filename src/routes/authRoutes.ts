@@ -1,5 +1,5 @@
 // src/routes/authRoutes.ts
-import { Router } from "express";
+import { Router, Request, Response, NextFunction } from "express";
 import {
   handleGitHubCallback,
   initiateGitHubAuth,
@@ -13,13 +13,24 @@ import { authRateLimiter } from "../middleware/rateLimit.js";
 
 const router = Router();
 
+// Middleware to enforce POST method
+const enforcePost = (req: Request, res: Response, next: NextFunction) => {
+  if (req.method !== "POST") {
+    return res.status(405).json({
+      status: "error",
+      message: "Method not allowed. Please use POST.",
+    });
+  }
+  next();
+};
+
 // Auth routes with rate limiting
 
 router.get("/github", authRateLimiter, initiateGitHubAuth);
 router.get("/github/callback", authRateLimiter, handleGitHubCallback);
 
 router.post("/refresh", authRateLimiter, refreshToken);
-router.post("/logout", authRateLimiter, logout);
+router.post("/logout", enforcePost, authRateLimiter, logout);
 router.get("/me", authRateLimiter, whoami);
 router.post("/login", authRateLimiter, login);
 router.post("/signup", authRateLimiter, signup);

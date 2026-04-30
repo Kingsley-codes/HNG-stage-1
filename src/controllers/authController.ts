@@ -48,7 +48,7 @@ export const initiateGitHubAuth = async (req: Request, res: Response) => {
     const { url, state, codeVerifier } =
       await tempAuthService.initiateGitHubAuth(clientType);
 
-    // Store state and verifier in cookies (for web) or return them (for CLI)
+    // For web clients, redirect directly to GitHub
     if (clientType === "web") {
       res.cookie("oauth_state", state, {
         httpOnly: true,
@@ -63,13 +63,18 @@ export const initiateGitHubAuth = async (req: Request, res: Response) => {
         maxAge: 10 * 60 * 1000,
         sameSite: "lax",
       });
+
+      // Redirect to GitHub authorization
+      return res.redirect(url);
     }
 
+    // For CLI clients, return the data in response
     res.json({
       status: "success",
       data: {
         url,
-        ...(clientType === "cli" && { state, codeVerifier }), // Return to CLI if needed
+        state,
+        codeVerifier,
       },
     });
   } catch (error) {
