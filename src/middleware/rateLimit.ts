@@ -69,14 +69,22 @@ class RateLimiter {
 const authLimiter = new RateLimiter(60 * 1000, env.RATE_LIMIT_AUTH);
 const defaultLimiter = new RateLimiter(60 * 1000, env.RATE_LIMIT_DEFAULT);
 
-const getRequestKey = (req: Request) => {
+const getRequestKey = (req: Request, scope?: string) => {
   const forwardedFor = req.headers["x-forwarded-for"];
+  let identifier: string;
 
-  if (typeof forwardedFor === "string" && forwardedFor.trim().length > 0) {
-    return forwardedFor.split(",")[0]!.trim();
+  if (Array.isArray(forwardedFor) && forwardedFor.length > 0) {
+    identifier = forwardedFor[0]!;
+  } else if (
+    typeof forwardedFor === "string" &&
+    forwardedFor.trim().length > 0
+  ) {
+    identifier = forwardedFor.split(",")[0]!.trim();
+  } else {
+    identifier = req.ip || "unknown";
   }
 
-  return req.ip || "unknown";
+  return scope ? `${scope}:${identifier}` : identifier;
 };
 
 export const authRateLimiter = (
@@ -84,7 +92,7 @@ export const authRateLimiter = (
   res: Response,
   next: NextFunction,
 ) => {
-  const key = getRequestKey(req);
+  const key = getRequestKey(req, `auth:${req.baseUrl}${req.path}`);
   const result = authLimiter.isRateLimited(key);
 
   res.setHeader("X-RateLimit-Limit", String(env.RATE_LIMIT_AUTH));

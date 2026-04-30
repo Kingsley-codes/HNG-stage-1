@@ -21,6 +21,8 @@ export class TokenService {
   generateAccessToken(payload: TokenPayload): string {
     return jwt.sign(payload, this.accessSecret, {
       expiresIn: this.accessExpiry,
+      jwtid: crypto.randomUUID(),
+      subject: payload.user_id,
     });
   }
 
