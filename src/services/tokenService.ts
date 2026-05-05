@@ -46,7 +46,7 @@ export class TokenService {
   }
 
   async saveRefreshToken(userId: string, tokenHash: string): Promise<void> {
-    db.saveRefreshToken(userId, tokenHash, this.refreshExpiry);
+    await db.saveRefreshToken(userId, tokenHash, this.refreshExpiry);
   }
 
   async findValidRefreshToken(
@@ -56,14 +56,14 @@ export class TokenService {
   }
 
   async revokeRefreshToken(tokenHash: string): Promise<void> {
-    db.revokeRefreshToken(tokenHash);
+    await db.revokeRefreshToken(tokenHash);
   }
 
   async revokeAllUserTokens(userId: string): Promise<void> {
-    db.revokeAllUserRefreshTokens(userId);
+    await db.revokeAllUserRefreshTokens(userId);
   }
 
   async cleanupExpiredTokens(): Promise<void> {
-    db.cleanupExpiredTokens();
+    await db.cleanupExpiredTokens();
   }
 }

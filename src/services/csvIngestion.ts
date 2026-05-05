@@ -48,7 +48,7 @@ export async function importProfilesFromCsvStream(
       return;
     }
 
-    const { inserted, duplicates } = db.bulkInsertProfiles(validBatch);
+    const { inserted, duplicates } = await db.bulkInsertProfiles(validBatch);
     summary.inserted += inserted;
 
     if (duplicates > 0) {

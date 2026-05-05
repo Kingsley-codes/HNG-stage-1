@@ -1,27 +1,26 @@
-// src/server.ts
 import express from "express";
 import cors from "cors";
+import helmet from "helmet";
+import cookieParser from "cookie-parser";
 import profileRoutes from "./routes/profileRoutes.js";
 import authRoutes from "./routes/authRoutes.js";
 import userRoutes from "./routes/userRoutes.js";
 import { healthCheck, rootEndpoint } from "./controllers/healthController.js";
+import { env } from "./config/env.js";
 import { db } from "./services/database.js";
-import helmet from "helmet";
-import cookieParser from "cookie-parser";
 
 const app = express();
-const PORT = process.env.PORT;
+const PORT = env.PORT;
 
 app.set("trust proxy", 1);
 app.use(helmet());
 app.use(cookieParser());
 app.use(express.json());
 
-// CORS configuration using the cors package
 const allowedOrigins = new Set(
   [
-    process.env.WEB_PORTAL_URL,
-    `http://localhost:${process.env.CLI_CALLBACK_PORT}`,
+    env.WEB_PORTAL_URL,
+    `http://localhost:${env.CLI_CALLBACK_PORT}`,
     "http://localhost:3000",
     "http://localhost:3001",
     "http://localhost:5173",
@@ -55,14 +54,38 @@ app.use(
   }),
 );
 
-// Routes
 app.use("/auth", authRoutes);
 app.use("/api/profiles", profileRoutes);
 app.use("/api/users", userRoutes);
 app.get("/health", healthCheck);
 app.get("/", rootEndpoint);
 
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`📊 Database contains ${db.getProfileCount()} profiles`);
+const shutdown = async (signal: string) => {
+  try {
+    await db.disconnect();
+  } finally {
+    process.exit(signal === "SIGINT" ? 130 : 0);
+  }
+};
+
+const startServer = async () => {
+  await db.connect();
+
+  app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+    console.log(`Database contains ${db.getProfileCount()} profiles`);
+  });
+};
+
+process.on("SIGINT", () => {
+  void shutdown("SIGINT");
+});
+
+process.on("SIGTERM", () => {
+  void shutdown("SIGTERM");
+});
+
+startServer().catch((error) => {
+  console.error("Failed to start server:", error);
+  process.exit(1);
 });

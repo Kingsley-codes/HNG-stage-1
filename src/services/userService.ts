@@ -16,13 +16,11 @@ export class UserService {
   }
 
   async getUserByEmail(email: string): Promise<User | null> {
-    const allUsers = db.getAllUsers();
-    return allUsers.find((user) => user.email === email) || null;
+    return db.getUserByEmail(email);
   }
 
   async getUserByUsername(username: string): Promise<User | null> {
-    const allUsers = db.getAllUsers();
-    return allUsers.find((user) => user.username === username) || null;
+    return db.getUserByUsername(username);
   }
 
   async createUser(
@@ -57,17 +55,12 @@ export class UserService {
     };
 
     // Save to database
-    db.createUserWithPassword(newUser);
+    await db.createUserWithPassword(newUser);
     return newUser;
   }
 
   async updateLastLogin(userId: string): Promise<void> {
-    // Get user, update last_login_at, save back
-    const user = db.getUserById(userId);
-    if (user) {
-      user.last_login_at = new Date().toISOString();
-      db.updateUserLastLogin(userId);
-    }
+    await db.updateUserLastLogin(userId);
   }
 
   async updateUserRole(
@@ -82,7 +75,7 @@ export class UserService {
   }
 
   async checkUserActive(userId: string): Promise<boolean> {
-    const user = db.getUserById(userId);
+    const user = await db.getUserById(userId);
     return user ? user.is_active : false;
   }
 

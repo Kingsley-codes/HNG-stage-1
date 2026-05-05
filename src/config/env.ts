@@ -5,6 +5,8 @@ dotenv.config();
 export const env = {
   NODE_ENV: process.env.NODE_ENV || "development",
   PORT: parseInt(process.env.PORT || "4000"),
+  MONGODB_URI: process.env.MONGODB_URI || "",
+  MONGODB_DB_NAME: process.env.MONGODB_DB_NAME || "profile_intelligence_service",
 
   // GitHub OAuth
   GITHUB_CLIENT_ID: process.env.GITHUB_CLIENT_ID || "",
@@ -38,6 +40,7 @@ export const env = {
 
 // Validate required env vars
 const requiredEnvVars = [
+  "MONGODB_URI",
   "GITHUB_CLIENT_ID",
   "GITHUB_CLIENT_SECRET",
   "JWT_ACCESS_SECRET",

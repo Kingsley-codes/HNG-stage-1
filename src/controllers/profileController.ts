@@ -90,8 +90,15 @@ export const createProfile = async (req: AuthRequest, res: Response) => {
       created_at: new Date().toISOString(),
     };
 
-    db.saveProfile(profile);
-    await db.flush();
+    const inserted = await db.saveProfile(profile);
+    if (!inserted) {
+      const currentProfile = db.getProfileByName(name);
+      return res.status(200).json({
+        status: "success",
+        message: "Profile already exists",
+        data: currentProfile,
+      });
+    }
 
     return res.status(201).json({
       status: "success",
@@ -269,15 +276,13 @@ export const deleteProfile = async (req: AuthRequest, res: Response) => {
       });
     }
 
-    const deleted = db.deleteProfile(req.params.id);
+    const deleted = await db.deleteProfile(req.params.id);
     if (!deleted) {
       return res.status(404).json({
         status: "error",
         message: "Profile not found",
       });
     }
-
-    await db.flush();
     return res.status(204).send();
   } catch (error) {
     logError(error as Error, "DELETE /api/profiles/:id");

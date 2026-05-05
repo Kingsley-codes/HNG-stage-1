@@ -5,7 +5,6 @@ import { env } from "../config/env.js";
 import { TokenService } from "../services/tokenService.js";
 import { UserService } from "../services/userService.js";
 import { GitHubService } from "../services/githubService.js";
-import { db } from "../services/database.js";
 import { oauthSessionService } from "../services/oauthSessionService.js";
 import bcrypt from "bcrypt";
 import crypto from "crypto";
@@ -601,7 +600,7 @@ export const login = async (req: Request, res: Response) => {
     const { token: refreshToken, hash: refreshTokenHash } =
       tokenService.generateRefreshToken();
 
-    db.saveRefreshToken(user.id, refreshTokenHash, env.REFRESH_TOKEN_EXPIRY);
+    await tokenService.saveRefreshToken(user.id, refreshTokenHash);
 
     if (clientType === "web") {
       res.cookie("access_token", accessToken, sessionCookieOptions);

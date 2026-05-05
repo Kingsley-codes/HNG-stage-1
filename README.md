@@ -1,6 +1,6 @@
 # Intelligence Query Engine
 
-An Express + TypeScript API for building and querying enriched demographic profiles. The service accepts a person's name, enriches it with public inference APIs, stores the resulting profile in local JSON storage, and exposes authenticated endpoints for filtering, natural-language search, CSV export, and profile management.
+An Express + TypeScript API for building and querying enriched demographic profiles. The service accepts a person's name, enriches it with public inference APIs, stores the resulting profile in MongoDB, and exposes authenticated endpoints for filtering, natural-language search, CSV export, and profile management.
 
 ## Overview
 
@@ -12,13 +12,15 @@ This project now includes more than profile lookup. It also ships with:
 - API version enforcement with `X-API-Version`
 - request rate limiting
 - request and error logging
-- file-based persistence for profiles, users, and refresh tokens
+- MongoDB persistence for profiles, users, and refresh tokens
+- indexed in-memory query acceleration for profile reads
+- streamed CSV ingestion for large bulk uploads
 
 ## Features
 
 - Create enriched profiles from a single `name` input
 - Fetch inferred gender, age, and nationality from external APIs
-- Persist profiles locally in `data.json`
+- Persist profiles in MongoDB
 - Filter profiles by gender, age group, age range, country, and confidence thresholds
 - Sort and paginate profile results
 - Search profiles with rule-based natural-language queries
@@ -50,19 +52,18 @@ This project now includes more than profile lookup. It also ships with:
    - `genderize.io`
    - `agify.io`
    - `nationalize.io`
-4. The enriched profile is stored in `data.json`.
-5. Read endpoints apply filtering, sorting, pagination, NLP parsing, or CSV export on stored data.
+4. The enriched profile is stored in MongoDB and reflected into the in-process profile query engine.
+5. Read endpoints apply filtering, sorting, pagination, NLP parsing, or CSV export on the cached profile dataset.
 
 ### Persistence
 
-This service uses local file storage rather than a relational database.
+This service uses MongoDB as its system of record and keeps an in-memory indexed read model for fast profile queries.
 
-- Profiles are stored in `data.json`
-- Users are stored in `data.json`
-- Refresh tokens are stored in `data.json`
+- Profiles are stored in the `profiles` collection
+- Users are stored in the `users` collection
+- Refresh tokens are stored in the `refresh_tokens` collection
+- Existing `data.json` content can be migrated automatically on first boot if the Mongo collections are empty
 - Request and error logs are written to `logs/`
-
-That makes local setup simple, but it also means this implementation is best suited to small deployments, demos, and controlled environments.
 
 ## Project Structure
 
@@ -70,13 +71,14 @@ That makes local setup simple, but it also means this implementation is best sui
 src/
   config/         Environment loading and validation
   controllers/    Route handlers
+  models/         Mongo collection document definitions and indexes
   middleware/     Auth, RBAC, rate limiting, logging, versioning
   routes/         Express routers
-  services/       Auth, GitHub OAuth, token, data, NLP, external API clients
+  services/       Auth, GitHub OAuth, token, Mongo access, NLP, external API clients
   types/          Shared TypeScript types
   utils/          Filtering, sorting, pagination, validation helpers
   server.ts       Application entry point
-data.json         Local persisted data store
+data.json         Optional one-time migration source
 logs/             Access and error logs
 ```
 
@@ -111,6 +113,8 @@ Create a `.env` file in the project root.
 | -------------------------- | ----------------------- | ------------------------------------------------------ |
 | `PORT`                     | Yes                     | Port the API listens on                                |
 | `NODE_ENV`                 | No                      | Runtime mode, usually `development` or `production`    |
+| `MONGODB_URI`              | Yes                     | MongoDB connection string                              |
+| `MONGODB_DB_NAME`          | No                      | MongoDB database name, defaults to `profile_intelligence_service` |
 | `JWT_ACCESS_SECRET`        | Yes                     | Secret used to sign access tokens                      |
 | `JWT_REFRESH_SECRET`       | Yes                     | Secret used to hash/validate refresh token state       |
 | `ACCESS_TOKEN_EXPIRY`      | No                      | Access token TTL in seconds                            |
@@ -129,7 +133,7 @@ Create a `.env` file in the project root.
 
 Notes:
 
-- The current env validation requires `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `JWT_ACCESS_SECRET`, and `JWT_REFRESH_SECRET` at startup.
+- The current env validation requires `MONGODB_URI`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `JWT_ACCESS_SECRET`, and `JWT_REFRESH_SECRET` at startup.
 
 ### Run in Development
 
@@ -395,7 +399,8 @@ Request and response logs are written to daily files in `logs/`. Errors are writ
 
 - The app starts even if no admin exists, but it logs a reminder to create one.
 - Creating a profile depends on public third-party APIs being reachable and returning usable data.
-- The local JSON database is simple and convenient, but not ideal for concurrent or large-scale production workloads.
+- Profile reads are served from an in-memory indexed read model, so memory sizing matters as the dataset grows.
+- MongoDB remains the source of truth, and `data.json` is only used as an optional migration source on first boot.
 
 ## Known Gaps
 
