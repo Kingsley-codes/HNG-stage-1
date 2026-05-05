@@ -2,6 +2,7 @@
 import { Router } from "express";
 import {
   createProfile,
+  importProfiles,
   searchProfilesByNLP,
   getProfileById,
   getAllProfiles,
@@ -30,6 +31,7 @@ router.get("/:id", requireAnalyst, getProfileById);
 
 // Routes accessible only by admin (write/delete operations)
 router.post("/", requireAdmin, createProfile);
+router.post("/import", requireAdmin, importProfiles);
 router.delete("/:id", requireAdmin, deleteProfile);
 
 export default router;

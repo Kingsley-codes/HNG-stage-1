@@ -1,31 +1,23 @@
-// src/controllers/profileController.ts
 import { Response } from "express";
+import { Parser } from "json2csv";
 import { v7 as uuidv7 } from "uuid";
+import { AuthRequest } from "../middleware/auth.js";
+import { logError } from "../middleware/logger.js";
 import { db } from "../services/database.js";
+import { importProfilesFromCsvStream, CsvImportValidationError } from "../services/csvIngestion.js";
 import {
-  fetchGender,
   fetchAge,
+  fetchGender,
   fetchNationality,
 } from "../services/apiClients.js";
 import { parseNaturalLanguage } from "../services/nlpParser.js";
-import { AuthRequest } from "../middleware/auth.js";
-import { FilterOptions, Profile } from "../types/index.js";
-import {
-  getAgeGroup,
-  validateName,
-  applyFilters,
-  applySorting,
-  applyPagination,
-} from "../utils/helpers.js";
-import { logError } from "../middleware/logger.js";
-import { TokenService } from "../services/tokenService.js";
-import { Parser } from "json2csv";
+import { FilterOptions } from "../types/index.js";
+import { getAgeGroup, validateName } from "../utils/helpers.js";
 
-const tokenService = new TokenService();
+const VALID_SORT_FIELDS = ["age", "created_at", "gender_probability"] as const;
 
 export const createProfile = async (req: AuthRequest, res: Response) => {
   try {
-    // Check if user is admin (should be caught by middleware, but double-check)
     if (req.user?.role !== "admin") {
       return res.status(403).json({
         status: "error",
@@ -34,7 +26,6 @@ export const createProfile = async (req: AuthRequest, res: Response) => {
     }
 
     const name = validateName(req.body.name);
-
     if (name === null) {
       return res.status(400).json({
         status: "error",
@@ -58,7 +49,9 @@ export const createProfile = async (req: AuthRequest, res: Response) => {
       });
     }
 
-    let genderData, ageData, nationalityData;
+    let genderData;
+    let ageData;
+    let nationalityData;
 
     try {
       [genderData, ageData, nationalityData] = await Promise.all([
@@ -79,13 +72,13 @@ export const createProfile = async (req: AuthRequest, res: Response) => {
     }
 
     const topCountry = nationalityData.country.reduce(
-      (prev: any, current: any) =>
-        prev.probability > current.probability ? prev : current,
+      (previous: any, current: any) =>
+        previous.probability > current.probability ? previous : current,
     );
 
-    const profile: Profile = {
+    const profile = {
       id: uuidv7(),
-      name: name,
+      name,
       gender: genderData.gender!,
       gender_probability: genderData.probability,
       sample_size: genderData.count,
@@ -98,6 +91,7 @@ export const createProfile = async (req: AuthRequest, res: Response) => {
     };
 
     db.saveProfile(profile);
+    await db.flush();
 
     return res.status(201).json({
       status: "success",
@@ -105,7 +99,51 @@ export const createProfile = async (req: AuthRequest, res: Response) => {
     });
   } catch (error) {
     logError(error as Error, "POST /api/profiles");
-    console.error("Error in POST /api/profiles:", error);
+    return res.status(500).json({
+      status: "error",
+      message: "Internal server error",
+    });
+  }
+};
+
+export const importProfiles = async (req: AuthRequest, res: Response) => {
+  try {
+    if (req.user?.role !== "admin") {
+      return res.status(403).json({
+        status: "error",
+        message: "Insufficient permissions. Admin access required.",
+      });
+    }
+
+    const contentType = req.headers["content-type"] ?? "";
+    if (
+      typeof contentType !== "string" ||
+      ![
+        "text/csv",
+        "application/csv",
+        "application/vnd.ms-excel",
+        "application/octet-stream",
+      ].some((allowedType) => contentType.includes(allowedType))
+    ) {
+      return res.status(415).json({
+        status: "error",
+        message:
+          "Unsupported media type. Send the CSV file as the raw request body.",
+      });
+    }
+
+    const summary = await importProfilesFromCsvStream(req);
+    const statusCode = summary.status === "success" ? 200 : 500;
+    return res.status(statusCode).json(summary);
+  } catch (error) {
+    if (error instanceof CsvImportValidationError) {
+      return res.status(400).json({
+        status: "error",
+        message: error.message,
+      });
+    }
+
+    logError(error as Error, "POST /api/profiles/import");
     return res.status(500).json({
       status: "error",
       message: "Internal server error",
@@ -116,7 +154,6 @@ export const createProfile = async (req: AuthRequest, res: Response) => {
 export const searchProfilesByNLP = (req: AuthRequest, res: Response) => {
   try {
     const query = req.query.q as string;
-
     if (!query || query.trim().length === 0) {
       return res.status(400).json({
         status: "error",
@@ -125,7 +162,6 @@ export const searchProfilesByNLP = (req: AuthRequest, res: Response) => {
     }
 
     const parsed = parseNaturalLanguage(query);
-
     if (!parsed.isValid) {
       return res.status(400).json({
         status: "error",
@@ -133,54 +169,28 @@ export const searchProfilesByNLP = (req: AuthRequest, res: Response) => {
       });
     }
 
-    let profiles = db.getAllProfiles();
-    let filteredProfiles = applyFilters(profiles, parsed.filters);
+    const options = parseQueryOptions(req);
+    if ("error" in options) {
+      return res.status(422).json({
+        status: "error",
+        message: options.error,
+      });
+    }
 
-    let page = parseInt(req.query.page as string) || 1;
-    let limit = parseInt(req.query.limit as string) || 10;
-
-    if (page < 1) page = 1;
-    if (limit < 1) limit = 10;
-    if (limit > 50) limit = 50;
-
-    const total = filteredProfiles.length;
-    const totalPages = Math.ceil(total / limit);
-    const paginatedProfiles = applyPagination(filteredProfiles, page, limit);
-
-    // Generate pagination links
-    const baseUrl = `/api/profiles/search`;
-    const links = {
-      self: `${baseUrl}?page=${page}&limit=${limit}${query ? `&q=${encodeURIComponent(query)}` : ""}`,
-      next:
-        page < totalPages
-          ? `${baseUrl}?page=${page + 1}&limit=${limit}${query ? `&q=${encodeURIComponent(query)}` : ""}`
-          : null,
-      prev:
-        page > 1
-          ? `${baseUrl}?page=${page - 1}&limit=${limit}${query ? `&q=${encodeURIComponent(query)}` : ""}`
-          : null,
-    };
+    const result = db.queryProfiles(parsed.filters, options, "profiles:nlp");
+    const links = buildLinks("/api/profiles/search", req, result.page, result.total_pages, result.limit);
 
     return res.status(200).json({
       status: "success",
-      page,
-      limit,
-      total,
-      total_pages: totalPages,
+      page: result.page,
+      limit: result.limit,
+      total: result.total,
+      total_pages: result.total_pages,
       links,
-      data: paginatedProfiles.map((p) => ({
-        id: p.id,
-        name: p.name,
-        gender: p.gender,
-        age: p.age,
-        age_group: p.age_group,
-        country_id: p.country_id,
-        country_name: p.country_name,
-      })),
+      data: toProfileSummary(result.data),
     });
   } catch (error) {
     logError(error as Error, "GET /api/profiles/search");
-    console.error("Error in GET /api/profiles/search:", error);
     return res.status(500).json({
       status: "error",
       message: "Internal server error",
@@ -190,9 +200,7 @@ export const searchProfilesByNLP = (req: AuthRequest, res: Response) => {
 
 export const getProfileById = (req: AuthRequest, res: Response) => {
   try {
-    const { id } = req.params;
-    const profile = db.getProfile(id);
-
+    const profile = db.getProfile(req.params.id);
     if (!profile) {
       return res.status(404).json({
         status: "error",
@@ -206,7 +214,6 @@ export const getProfileById = (req: AuthRequest, res: Response) => {
     });
   } catch (error) {
     logError(error as Error, "GET /api/profiles/:id");
-    console.error("Error in GET /api/profiles/:id:", error);
     return res.status(500).json({
       status: "error",
       message: "Internal server error",
@@ -216,138 +223,36 @@ export const getProfileById = (req: AuthRequest, res: Response) => {
 
 export const getAllProfiles = (req: AuthRequest, res: Response) => {
   try {
-    const filters: Partial<FilterOptions> = {};
-
-    if (req.query.gender && typeof req.query.gender === "string") {
-      filters.gender = req.query.gender;
-    }
-
-    if (req.query.age_group && typeof req.query.age_group === "string") {
-      filters.age_group = req.query.age_group;
-    }
-
-    if (req.query.country_id && typeof req.query.country_id === "string") {
-      filters.country_id = req.query.country_id;
-    }
-
-    if (req.query.min_age) {
-      const minAge = parseInt(req.query.min_age as string);
-      if (isNaN(minAge)) {
-        return res.status(422).json({
-          status: "error",
-          message: "Invalid query parameters",
-        });
-      }
-      filters.min_age = minAge;
-    }
-
-    if (req.query.max_age) {
-      const maxAge = parseInt(req.query.max_age as string);
-      if (isNaN(maxAge)) {
-        return res.status(422).json({
-          status: "error",
-          message: "Invalid query parameters",
-        });
-      }
-      filters.max_age = maxAge;
-    }
-
-    if (req.query.min_gender_probability) {
-      const minProb = parseFloat(req.query.min_gender_probability as string);
-      if (isNaN(minProb) || minProb < 0 || minProb > 1) {
-        return res.status(422).json({
-          status: "error",
-          message: "Invalid query parameters",
-        });
-      }
-      filters.min_gender_probability = minProb;
-    }
-
-    if (req.query.min_country_probability) {
-      const minProb = parseFloat(req.query.min_country_probability as string);
-      if (isNaN(minProb) || minProb < 0 || minProb > 1) {
-        return res.status(422).json({
-          status: "error",
-          message: "Invalid query parameters",
-        });
-      }
-      filters.min_country_probability = minProb;
-    }
-
-    let page = parseInt(req.query.page as string) || 1;
-    let limit = parseInt(req.query.limit as string) || 10;
-    if (page < 1) page = 1;
-    if (limit < 1) limit = 10;
-    if (limit > 50) limit = 50;
-
-    const validSortFields = ["age", "created_at", "gender_probability"];
-    const sortBy = (req.query.sort_by as string) || "created_at";
-    const order: "asc" | "desc" =
-      (req.query.order as string) === "desc" ? "desc" : "asc";
-
-    if (!validSortFields.includes(sortBy)) {
+    const filters = parseFilterOptions(req);
+    if ("error" in filters) {
       return res.status(422).json({
         status: "error",
-        message: "Invalid query parameters",
+        message: filters.error,
       });
     }
 
-    let profiles = db.getAllProfiles();
-    let filteredProfiles = applyFilters(profiles, filters);
-    const total = filteredProfiles.length;
-    const totalPages = Math.ceil(total / limit);
+    const options = parseQueryOptions(req);
+    if ("error" in options) {
+      return res.status(422).json({
+        status: "error",
+        message: options.error,
+      });
+    }
 
-    filteredProfiles = applySorting(filteredProfiles, sortBy, order);
-    const paginatedProfiles = applyPagination(filteredProfiles, page, limit);
-
-    // Generate pagination links
-    const baseUrl = `/api/profiles`;
-    const queryParams = new URLSearchParams();
-    if (req.query.gender)
-      queryParams.append("gender", req.query.gender as string);
-    if (req.query.age_group)
-      queryParams.append("age_group", req.query.age_group as string);
-    if (req.query.country_id)
-      queryParams.append("country_id", req.query.country_id as string);
-    if (req.query.min_age)
-      queryParams.append("min_age", req.query.min_age as string);
-    if (req.query.max_age)
-      queryParams.append("max_age", req.query.max_age as string);
-    if (req.query.sort_by) queryParams.append("sort_by", sortBy);
-    if (req.query.order) queryParams.append("order", order);
-
-    const links = {
-      self: `${baseUrl}?page=${page}&limit=${limit}${queryParams.toString() ? `&${queryParams.toString()}` : ""}`,
-      next:
-        page < totalPages
-          ? `${baseUrl}?page=${page + 1}&limit=${limit}${queryParams.toString() ? `&${queryParams.toString()}` : ""}`
-          : null,
-      prev:
-        page > 1
-          ? `${baseUrl}?page=${page - 1}&limit=${limit}${queryParams.toString() ? `&${queryParams.toString()}` : ""}`
-          : null,
-    };
+    const result = db.queryProfiles(filters, options, "profiles:list");
+    const links = buildLinks("/api/profiles", req, result.page, result.total_pages, result.limit);
 
     return res.status(200).json({
       status: "success",
-      page,
-      limit,
-      total,
-      total_pages: totalPages,
+      page: result.page,
+      limit: result.limit,
+      total: result.total,
+      total_pages: result.total_pages,
       links,
-      data: paginatedProfiles.map((p) => ({
-        id: p.id,
-        name: p.name,
-        gender: p.gender,
-        age: p.age,
-        age_group: p.age_group,
-        country_id: p.country_id,
-        country_name: p.country_name,
-      })),
+      data: toProfileSummary(result.data),
     });
   } catch (error) {
     logError(error as Error, "GET /api/profiles");
-    console.error("Error in GET /api/profiles:", error);
     return res.status(500).json({
       status: "error",
       message: "Internal server error",
@@ -355,9 +260,8 @@ export const getAllProfiles = (req: AuthRequest, res: Response) => {
   }
 };
 
-export const deleteProfile = (req: AuthRequest, res: Response) => {
+export const deleteProfile = async (req: AuthRequest, res: Response) => {
   try {
-    // Check if user is admin
     if (req.user?.role !== "admin") {
       return res.status(403).json({
         status: "error",
@@ -365,9 +269,7 @@ export const deleteProfile = (req: AuthRequest, res: Response) => {
       });
     }
 
-    const { id } = req.params;
-    const deleted = db.deleteProfile(id);
-
+    const deleted = db.deleteProfile(req.params.id);
     if (!deleted) {
       return res.status(404).json({
         status: "error",
@@ -375,10 +277,10 @@ export const deleteProfile = (req: AuthRequest, res: Response) => {
       });
     }
 
+    await db.flush();
     return res.status(204).send();
   } catch (error) {
     logError(error as Error, "DELETE /api/profiles/:id");
-    console.error("Error in DELETE /api/profiles/:id:", error);
     return res.status(500).json({
       status: "error",
       message: "Internal server error",
@@ -386,69 +288,33 @@ export const deleteProfile = (req: AuthRequest, res: Response) => {
   }
 };
 
-export const exportProfiles = async (req: AuthRequest, res: Response) => {
+export const exportProfiles = (req: AuthRequest, res: Response) => {
   try {
     const format = req.query.format as string;
-
-    if (!format || format !== "csv") {
+    if (format !== "csv") {
       return res.status(400).json({
         status: "error",
         message: "Invalid format. Only CSV format is supported.",
       });
     }
 
-    // Apply same filters as getAllProfiles
-    const filters: Partial<FilterOptions> = {};
-
-    if (req.query.gender && typeof req.query.gender === "string") {
-      filters.gender = req.query.gender;
+    const filters = parseFilterOptions(req);
+    if ("error" in filters) {
+      return res.status(422).json({
+        status: "error",
+        message: filters.error,
+      });
     }
 
-    if (req.query.age_group && typeof req.query.age_group === "string") {
-      filters.age_group = req.query.age_group;
+    const options = parseQueryOptions(req);
+    if ("error" in options) {
+      return res.status(422).json({
+        status: "error",
+        message: options.error,
+      });
     }
 
-    if (req.query.country_id && typeof req.query.country_id === "string") {
-      filters.country_id = req.query.country_id;
-    }
-
-    if (req.query.min_age) {
-      const minAge = parseInt(req.query.min_age as string);
-      if (!isNaN(minAge)) filters.min_age = minAge;
-    }
-
-    if (req.query.max_age) {
-      const maxAge = parseInt(req.query.max_age as string);
-      if (!isNaN(maxAge)) filters.max_age = maxAge;
-    }
-
-    let profiles = db.getAllProfiles();
-    let filteredProfiles = applyFilters(profiles, filters);
-
-    // Apply sorting if specified
-    const validSortFields = ["age", "created_at", "gender_probability"];
-    const sortBy = (req.query.sort_by as string) || "created_at";
-    const order: "asc" | "desc" =
-      (req.query.order as string) === "desc" ? "desc" : "asc";
-
-    if (validSortFields.includes(sortBy)) {
-      filteredProfiles = applySorting(filteredProfiles, sortBy, order);
-    }
-
-    // Prepare CSV data
-    const csvData = filteredProfiles.map((profile) => ({
-      id: profile.id,
-      name: profile.name,
-      gender: profile.gender,
-      gender_probability: profile.gender_probability,
-      age: profile.age,
-      age_group: profile.age_group,
-      country_id: profile.country_id,
-      country_name: profile.country_name,
-      country_probability: profile.country_probability,
-      created_at: profile.created_at,
-    }));
-
+    const filteredProfiles = db.exportProfiles(filters, options);
     const fields = [
       "id",
       "name",
@@ -462,22 +328,199 @@ export const exportProfiles = async (req: AuthRequest, res: Response) => {
       "created_at",
     ];
 
-    const json2csvParser = new Parser({ fields });
-    const csv = json2csvParser.parse(csvData);
-
+    const csv = new Parser({ fields }).parse(filteredProfiles);
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
     const filename = `profiles_${timestamp}.csv`;
 
     res.setHeader("Content-Type", "text/csv");
     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
-
     return res.status(200).send(csv);
   } catch (error) {
     logError(error as Error, "GET /api/profiles/export");
-    console.error("Error in GET /api/profiles/export:", error);
     return res.status(500).json({
       status: "error",
       message: "Internal server error",
     });
   }
 };
+
+function parseFilterOptions(
+  req: AuthRequest,
+): Partial<FilterOptions> | { error: string } {
+  const filters: Partial<FilterOptions> = {};
+
+  if (req.query.gender && typeof req.query.gender === "string") {
+    filters.gender = req.query.gender;
+  }
+
+  if (req.query.age_group && typeof req.query.age_group === "string") {
+    filters.age_group = req.query.age_group;
+  }
+
+  if (req.query.country_id && typeof req.query.country_id === "string") {
+    filters.country_id = req.query.country_id;
+  }
+
+  const minAge = parseOptionalInteger(req.query.min_age as string | undefined);
+  if (minAge.error) {
+    return { error: "Invalid query parameters" };
+  }
+  if (minAge.value !== undefined) {
+    filters.min_age = minAge.value;
+  }
+
+  const maxAge = parseOptionalInteger(req.query.max_age as string | undefined);
+  if (maxAge.error) {
+    return { error: "Invalid query parameters" };
+  }
+  if (maxAge.value !== undefined) {
+    filters.max_age = maxAge.value;
+  }
+
+  const minGenderProbability = parseOptionalNumber(
+    req.query.min_gender_probability as string | undefined,
+  );
+  if (minGenderProbability.error) {
+    return { error: "Invalid query parameters" };
+  }
+  if (minGenderProbability.value !== undefined) {
+    filters.min_gender_probability = minGenderProbability.value;
+  }
+
+  const minCountryProbability = parseOptionalNumber(
+    req.query.min_country_probability as string | undefined,
+  );
+  if (minCountryProbability.error) {
+    return { error: "Invalid query parameters" };
+  }
+  if (minCountryProbability.value !== undefined) {
+    filters.min_country_probability = minCountryProbability.value;
+  }
+
+  return filters;
+}
+
+function parseQueryOptions(
+  req: AuthRequest,
+): {
+  page: number;
+  limit: number;
+  sort_by: "age" | "created_at" | "gender_probability";
+  order: "asc" | "desc";
+} | { error: string } {
+  const page = parsePositiveInteger(req.query.page as string | undefined, 1);
+  const limit = parsePositiveInteger(req.query.limit as string | undefined, 10);
+  if (page.error || limit.error) {
+    return { error: "Invalid query parameters" };
+  }
+
+  const sortBy = (req.query.sort_by as string | undefined) ?? "created_at";
+  if (!VALID_SORT_FIELDS.includes(sortBy as (typeof VALID_SORT_FIELDS)[number])) {
+    return { error: "Invalid query parameters" };
+  }
+
+  return {
+    page: page.value,
+    limit: Math.min(limit.value, 50),
+    sort_by: sortBy as "age" | "created_at" | "gender_probability",
+    order: req.query.order === "desc" ? "desc" : "asc",
+  };
+}
+
+function parseOptionalInteger(
+  value: string | undefined,
+): { value?: number; error?: true } {
+  if (value === undefined) {
+    return {};
+  }
+
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isInteger(parsed)) {
+    return { error: true };
+  }
+
+  return { value: parsed };
+}
+
+function parseOptionalNumber(
+  value: string | undefined,
+): { value?: number; error?: true } {
+  if (value === undefined) {
+    return {};
+  }
+
+  const parsed = Number.parseFloat(value);
+  if (!Number.isFinite(parsed) || parsed < 0 || parsed > 1) {
+    return { error: true };
+  }
+
+  return { value: parsed };
+}
+
+function parsePositiveInteger(
+  value: string | undefined,
+  fallback: number,
+): { value: number; error?: true } {
+  if (value === undefined) {
+    return { value: fallback };
+  }
+
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isInteger(parsed)) {
+    return { value: fallback, error: true };
+  }
+
+  return { value: Math.max(parsed, 1) };
+}
+
+function buildLinks(
+  baseUrl: string,
+  req: AuthRequest,
+  page: number,
+  totalPages: number,
+  limit: number,
+) {
+  const buildLink = (targetPage: number | null) => {
+    if (targetPage === null) {
+      return null;
+    }
+
+    const params = new URLSearchParams();
+    Object.entries(req.query).forEach(([key, value]) => {
+      if (typeof value === "string" && key !== "page" && key !== "limit") {
+        params.set(key, value);
+      }
+    });
+    params.set("page", String(targetPage));
+    params.set("limit", String(limit));
+    return `${baseUrl}?${params.toString()}`;
+  };
+
+  return {
+    self: buildLink(page)!,
+    next: page < totalPages ? buildLink(page + 1) : null,
+    prev: page > 1 ? buildLink(page - 1) : null,
+  };
+}
+
+function toProfileSummary(
+  profiles: Array<{
+    id: string;
+    name: string;
+    gender: string;
+    age: number;
+    age_group: string;
+    country_id: string;
+    country_name: string;
+  }>,
+) {
+  return profiles.map((profile) => ({
+    id: profile.id,
+    name: profile.name,
+    gender: profile.gender,
+    age: profile.age,
+    age_group: profile.age_group,
+    country_id: profile.country_id,
+    country_name: profile.country_name,
+  }));
+}

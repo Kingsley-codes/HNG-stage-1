@@ -52,9 +52,7 @@ const shouldUseSecureCookies =
   (!!frontendUrl &&
     frontendUrl.protocol === "https:" &&
     !LOCAL_HOSTNAMES.has(frontendUrl.hostname));
-const sessionSameSite: "none" | "lax" = shouldUseSecureCookies
-  ? "none"
-  : "lax";
+const sessionSameSite: "none" | "lax" = shouldUseSecureCookies ? "none" : "lax";
 
 const oauthCookieOptions = {
   httpOnly: true,
@@ -124,13 +122,11 @@ const resolveLoginClientType = (req: Request): "web" | "cli" => {
   return req.headers.origin ? "web" : "cli";
 };
 
-// Modified: Accept code_challenge from query parameters
 export const initiateGitHubAuth = async (req: Request, res: Response) => {
   try {
     setBrowserCorsHeaders(req, res);
     const clientType = req.query.client === "cli" ? "cli" : "web";
 
-    // Use appropriate GitHub service based on client type
     const githubService =
       clientType === "cli" ? githubCliService : githubWebService;
     const tempAuthService = new AuthService(
@@ -152,11 +148,9 @@ export const initiateGitHubAuth = async (req: Request, res: Response) => {
       res.cookie("oauth_state", state, oauthCookieOptions);
       res.cookie("code_verifier", codeVerifier, oauthCookieOptions);
 
-      // Redirect to GitHub authorization
       return res.redirect(url);
     }
 
-    // For CLI clients, return the data in response
     res.json({
       status: "success",
       data: {
@@ -174,7 +168,6 @@ export const initiateGitHubAuth = async (req: Request, res: Response) => {
   }
 };
 
-// Unified callback handler - handles both web and CLI flows
 export const handleGitHubCallback = async (req: Request, res: Response) => {
   try {
     setBrowserCorsHeaders(req, res);
@@ -189,8 +182,6 @@ export const handleGitHubCallback = async (req: Request, res: Response) => {
       });
     }
 
-    // Determine if this is a CLI callback (code_verifier in body/query) or web (from cookies)
-    // CLI will send code_verifier and client_type in the request
     if (req.body.code_verifier || req.query.code_verifier) {
       // CLI flow: code_verifier is provided by the client
       codeVerifier = (req.body.code_verifier ||
@@ -241,8 +232,6 @@ export const handleGitHubCallback = async (req: Request, res: Response) => {
       });
     }
 
-    // Select the appropriate GitHub service based on client type
-    // For CLI, we need to use CLI credentials to exchange the code
     const githubService =
       clientType === "cli" ? githubCliService : githubWebService;
     const tempAuthService = new AuthService(
@@ -251,7 +240,6 @@ export const handleGitHubCallback = async (req: Request, res: Response) => {
       githubService,
     );
 
-    // Exchange code for tokens using the appropriate GitHub app
     const githubUser = isTestOAuthCode(code)
       ? buildMockGitHubUser(state, clientType)
       : await (async () => {
@@ -267,17 +255,14 @@ export const handleGitHubCallback = async (req: Request, res: Response) => {
           return githubService.getUserInfo(tokenData.access_token);
         })();
 
-    // Find or create user in database
     const user = await userService.findOrCreateUser(githubUser);
 
     if (!user.is_active) {
       throw new Error("User account is deactivated");
     }
 
-    // Update last login
     await userService.updateLastLogin(user.id);
 
-    // Generate app tokens
     const accessToken = tokenService.generateAccessToken({
       user_id: user.id,
       username: user.username,
@@ -287,7 +272,6 @@ export const handleGitHubCallback = async (req: Request, res: Response) => {
     const { token: refreshToken, hash: refreshHash } =
       tokenService.generateRefreshToken();
 
-    // Save refresh token
     await tokenService.saveRefreshToken(user.id, refreshHash);
 
     const authResult = {
@@ -302,23 +286,23 @@ export const handleGitHubCallback = async (req: Request, res: Response) => {
       refresh_token: refreshToken,
     };
 
-    // Clear web cookies if they exist
     if (req.cookies?.oauth_state) {
       clearOAuthCookies(res);
     }
 
     oauthSessionService.consumeSession(state);
 
-    // Handle response based on client type
     if (clientType === "web") {
-      // Web: Set HTTP-only cookies and redirect
       res.cookie("access_token", authResult.access_token, sessionCookieOptions);
-      res.cookie("refresh_token", authResult.refresh_token, refreshCookieOptions);
+      res.cookie(
+        "refresh_token",
+        authResult.refresh_token,
+        refreshCookieOptions,
+      );
 
       return res.redirect(`${env.WEB_PORTAL_URL}/dashboard`);
     }
 
-    // CLI: Return tokens in response body
     return res.json({
       status: "success",
       data: authResult,
@@ -330,7 +314,6 @@ export const handleGitHubCallback = async (req: Request, res: Response) => {
       oauthSessionService.consumeSession(req.query.state);
     }
 
-    // For web errors, redirect to error page
     if (req.cookies?.oauth_state) {
       clearOAuthCookies(res);
       return res.redirect(
@@ -338,7 +321,6 @@ export const handleGitHubCallback = async (req: Request, res: Response) => {
       );
     }
 
-    // For CLI errors, return JSON
     return res.status(500).json({
       status: "error",
       message: error.message || "Authentication failed",
@@ -360,7 +342,6 @@ export const refreshToken = async (req: Request, res: Response) => {
 
     const tokens = await authService.refreshTokens(refreshToken);
 
-    // Update cookies when the web client authenticated with HTTP-only cookies.
     if (req.cookies?.refresh_token) {
       res.cookie("access_token", tokens.access_token, sessionCookieOptions);
       res.cookie("refresh_token", tokens.refresh_token, refreshCookieOptions);
@@ -386,9 +367,9 @@ export const logout = async (req: Request, res: Response) => {
     const refreshToken = req.body?.refresh_token || req.cookies?.refresh_token;
     const hasSessionCookies = Boolean(
       req.cookies?.access_token ||
-        req.cookies?.refresh_token ||
-        req.cookies?.oauth_state ||
-        req.cookies?.code_verifier,
+      req.cookies?.refresh_token ||
+      req.cookies?.oauth_state ||
+      req.cookies?.code_verifier,
     );
 
     if (!refreshToken && !hasSessionCookies) {
@@ -484,7 +465,6 @@ export const signup = async (req: Request, res: Response) => {
       });
     }
 
-    // Validate password strength
     if (password.length < 8) {
       return res.status(400).json({
         status: "error",
@@ -492,7 +472,6 @@ export const signup = async (req: Request, res: Response) => {
       });
     }
 
-    // Check for strong password (optional but recommended)
     const hasUpperCase = /[A-Z]/.test(password);
     const hasLowerCase = /[a-z]/.test(password);
     const hasNumbers = /\d/.test(password);
@@ -524,7 +503,6 @@ export const signup = async (req: Request, res: Response) => {
       });
     }
 
-    // Hash password
     const saltRounds = 12;
     const passwordHash = await bcrypt.hash(password, saltRounds);
 
@@ -546,7 +524,6 @@ export const signup = async (req: Request, res: Response) => {
 
     const createdUser = await userService.createUser(newUser);
 
-    // Return user data (excluding sensitive info) and tokens
     res.status(201).json({
       status: "success",
       message: "User created successfully. Please verify your email.",
@@ -569,13 +546,11 @@ export const signup = async (req: Request, res: Response) => {
   }
 };
 
-// ========== NEW: Email/Password Login ==========
 export const login = async (req: Request, res: Response) => {
   try {
     const { email, password } = req.body;
     const clientType = resolveLoginClientType(req);
 
-    // Validate required fields
     if (!email || !password) {
       return res.status(400).json({
         status: "error",
@@ -583,7 +558,6 @@ export const login = async (req: Request, res: Response) => {
       });
     }
 
-    // Find user by email
     const user = await userService.getUserByEmail(email.toLowerCase());
 
     if (!user) {
@@ -593,7 +567,6 @@ export const login = async (req: Request, res: Response) => {
       });
     }
 
-    // Check if user is active
     if (!user.is_active) {
       return res.status(401).json({
         status: "error",
@@ -601,7 +574,6 @@ export const login = async (req: Request, res: Response) => {
       });
     }
 
-    // Check if user has a password (not a GitHub-only account)
     if (!user.password_hash) {
       return res.status(401).json({
         status: "error",
@@ -610,7 +582,6 @@ export const login = async (req: Request, res: Response) => {
       });
     }
 
-    // Verify password
     const isValidPassword = await bcrypt.compare(password, user.password_hash);
     if (!isValidPassword) {
       return res.status(401).json({
@@ -619,10 +590,8 @@ export const login = async (req: Request, res: Response) => {
       });
     }
 
-    // Update last login
     await userService.updateLastLogin(user.id);
 
-    // Generate tokens
     const accessToken = tokenService.generateAccessToken({
       user_id: user.id,
       username: user.username,
@@ -634,12 +603,10 @@ export const login = async (req: Request, res: Response) => {
 
     db.saveRefreshToken(user.id, refreshTokenHash, env.REFRESH_TOKEN_EXPIRY);
 
-    // For web portal: set HTTP-only cookies
     if (clientType === "web") {
       res.cookie("access_token", accessToken, sessionCookieOptions);
       res.cookie("refresh_token", refreshToken, refreshCookieOptions);
 
-      // Return success without tokens in body for web
       return res.json({
         status: "success",
         message: "Login successful",
@@ -656,7 +623,6 @@ export const login = async (req: Request, res: Response) => {
       });
     }
 
-    // For CLI/API: return tokens in response
     res.json({
       status: "success",
       message: "Login successful",

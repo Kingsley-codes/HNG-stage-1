@@ -51,6 +51,30 @@ export interface FilterOptions {
   limit?: number;
 }
 
+export interface QueryExecutionOptions {
+  page: number;
+  limit: number;
+  sort_by: "age" | "created_at" | "gender_probability";
+  order: "asc" | "desc";
+}
+
+export interface QueryExecutionResult {
+  page: number;
+  limit: number;
+  total: number;
+  total_pages: number;
+  data: Profile[];
+}
+
+export interface CsvImportSummary {
+  status: "success" | "error";
+  total_rows: number;
+  inserted: number;
+  skipped: number;
+  reasons: Record<string, number>;
+  message?: string;
+}
+
 // ========== Auth Types (New) ==========
 // src/types/index.ts
 
@@ -67,15 +91,6 @@ export interface User {
   last_login_at: string | null;
   created_at: string;
   updated_at?: string;
-}
-
-export interface RefreshToken {
-  id: string;
-  user_id: string;
-  token_hash: string;
-  expires_at: string;
-  created_at: string;
-  revoked_at: string | null;
 }
 
 export interface RefreshToken {
