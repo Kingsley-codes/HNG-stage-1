@@ -115,6 +115,8 @@ Create a `.env` file in the project root.
 | `NODE_ENV`                 | No                      | Runtime mode, usually `development` or `production`    |
 | `MONGODB_URI`              | Yes                     | MongoDB connection string                              |
 | `MONGODB_DB_NAME`          | No                      | MongoDB database name, defaults to `profile_intelligence_service` |
+| `INGESTION_BATCH_SIZE`     | No                      | CSV insert chunk size, defaults to `10000`            |
+| `INGESTION_YIELD_INTERVAL` | No                      | Rows processed before yielding the event loop, defaults to `5000` |
 | `JWT_ACCESS_SECRET`        | Yes                     | Secret used to sign access tokens                      |
 | `JWT_REFRESH_SECRET`       | Yes                     | Secret used to hash/validate refresh token state       |
 | `ACCESS_TOKEN_EXPIRY`      | No                      | Access token TTL in seconds                            |

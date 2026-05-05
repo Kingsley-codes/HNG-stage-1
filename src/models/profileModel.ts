@@ -18,28 +18,17 @@ export const PROFILE_INDEXES: Array<{
 }> = [
   {
     key: { id: 1 as IndexDirection },
-    options: { unique: true },
+    options: {
+      unique: true,
+      name: "profile_id_unique",
+    },
   },
   {
     key: { name_key: 1 as IndexDirection },
-    options: { unique: true },
-  },
-  {
-    key: {
-      gender: 1 as IndexDirection,
-      age_group: 1 as IndexDirection,
-      country_id: 1 as IndexDirection,
-      created_at_date: -1 as IndexDirection,
+    options: {
+      unique: true,
+      name: "profile_name_key_unique",
     },
-  },
-  {
-    key: {
-      country_id: 1 as IndexDirection,
-      age: 1 as IndexDirection,
-    },
-  },
-  {
-    key: { gender_probability: 1 as IndexDirection },
   },
 ];
 

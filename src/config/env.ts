@@ -7,6 +7,10 @@ export const env = {
   PORT: parseInt(process.env.PORT || "4000"),
   MONGODB_URI: process.env.MONGODB_URI || "",
   MONGODB_DB_NAME: process.env.MONGODB_DB_NAME || "profile_intelligence_service",
+  INGESTION_BATCH_SIZE: parseInt(process.env.INGESTION_BATCH_SIZE || "20000"),
+  INGESTION_YIELD_INTERVAL: parseInt(
+    process.env.INGESTION_YIELD_INTERVAL || "5000",
+  ),
 
   // GitHub OAuth
   GITHUB_CLIENT_ID: process.env.GITHUB_CLIENT_ID || "",

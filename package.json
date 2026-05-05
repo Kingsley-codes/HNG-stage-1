@@ -7,6 +7,7 @@
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
     "benchmark:queries": "tsx src/benchmarks/profileQueryBenchmark.ts",
+    "benchmark:ingestion": "tsx src/benchmarks/profileIngestionBenchmark.ts",
     "seed": "tsx src/seed.ts",
     "seed:force": "tsx src/force-seed.ts"
   },

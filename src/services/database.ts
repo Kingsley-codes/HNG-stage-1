@@ -1,6 +1,6 @@
 import fs from "fs";
 import crypto from "crypto";
-import { Collection, MongoServerError } from "mongodb";
+import { Collection, MongoBulkWriteError, MongoServerError } from "mongodb";
 import {
   PROFILE_COLLECTION,
   PROFILE_INDEXES,
@@ -104,6 +104,8 @@ class MongoDBService {
   private refreshTokensCollection: Collection<RefreshTokenDocument> | null =
     null;
   private connectPromise: Promise<void> | null = null;
+  private profileReadModelRebuildPromise: Promise<void> | null = null;
+  private profileReadModelRebuildRequested = false;
 
   async connect(): Promise<void> {
     if (this.profilesCollection && this.usersCollection && this.refreshTokensCollection) {
@@ -158,6 +160,30 @@ class MongoDBService {
         refreshTokensCollection.createIndex(key, options),
       ),
     ]);
+
+    await this.pruneProfileIndexes();
+  }
+
+  private async pruneProfileIndexes(): Promise<void> {
+    const profilesCollection = this.getProfilesCollection();
+    const desiredIndexNames = new Set(
+      PROFILE_INDEXES.map((index) => index.options?.name).filter(
+        (name): name is string => Boolean(name),
+      ),
+    );
+
+    const existingIndexes = await profilesCollection.listIndexes().toArray();
+    const indexesToDrop = existingIndexes
+      .map((index) => index.name)
+      .filter((name) => name !== "_id_" && !desiredIndexNames.has(name));
+
+    if (indexesToDrop.length === 0) {
+      return;
+    }
+
+    await Promise.all(
+      indexesToDrop.map((indexName) => profilesCollection.dropIndex(indexName)),
+    );
   }
 
   private async migrateLocalDataIfNeeded(): Promise<void> {
@@ -234,6 +260,26 @@ class MongoDBService {
     this.profiles.hydrate(documents.map((document) => toProfile(document)));
   }
 
+  async rebuildProfileReadModel(): Promise<void> {
+    this.profileReadModelRebuildRequested = true;
+
+    if (!this.profileReadModelRebuildPromise) {
+      this.profileReadModelRebuildPromise = this.runProfileReadModelRebuildLoop()
+        .finally(() => {
+          this.profileReadModelRebuildPromise = null;
+        });
+    }
+
+    await this.profileReadModelRebuildPromise;
+  }
+
+  private async runProfileReadModelRebuildLoop(): Promise<void> {
+    while (this.profileReadModelRebuildRequested) {
+      this.profileReadModelRebuildRequested = false;
+      await this.hydrateProfiles();
+    }
+  }
+
   private async ensureDefaultAdmin(): Promise<void> {
     const adminCount = await this.getUsersCollection().countDocuments(
       { role: "admin" },
@@ -292,31 +338,87 @@ class MongoDBService {
 
   async bulkInsertProfiles(
     profiles: Profile[],
+    options?: {
+      skipReadModelSync?: boolean;
+    },
   ): Promise<{ inserted: number; duplicates: number }> {
     if (profiles.length === 0) {
       return { inserted: 0, duplicates: 0 };
     }
 
-    const result = await this.getProfilesCollection().bulkWrite(
-      profiles.map((profile) => ({
-        updateOne: {
-          filter: { name_key: buildProfileNameKey(profile.name) },
-          update: { $setOnInsert: toProfileDocument(profile) },
-          upsert: true,
+    const collection = this.getProfilesCollection();
+    const uniqueProfilesByName = new Map<string, Profile>();
+
+    for (const profile of profiles) {
+      const nameKey = buildProfileNameKey(profile.name);
+      if (!uniqueProfilesByName.has(nameKey)) {
+        uniqueProfilesByName.set(nameKey, profile);
+      }
+    }
+
+    const uniqueProfiles = Array.from(uniqueProfilesByName.values());
+    const nameKeys = Array.from(uniqueProfilesByName.keys());
+
+    const existingProfiles = await collection
+      .find(
+        { name_key: { $in: nameKeys } },
+        {
+          projection: {
+            _id: 0,
+            name_key: 1,
+          },
         },
-      })),
-      { ordered: false },
+      )
+      .toArray();
+
+    const existingNameKeys = new Set(
+      existingProfiles.map((profile) => profile.name_key),
+    );
+    const insertCandidates = uniqueProfiles.filter(
+      (profile) => !existingNameKeys.has(buildProfileNameKey(profile.name)),
     );
 
-    const insertedProfiles = Object.keys(result.upsertedIds)
-      .map((index) => profiles[Number.parseInt(index, 10)])
-      .filter((profile): profile is Profile => Boolean(profile));
+    if (insertCandidates.length === 0) {
+      return { inserted: 0, duplicates: profiles.length };
+    }
 
-    this.profiles.addProfiles(insertedProfiles);
+    const candidateDocuments = insertCandidates.map((profile) =>
+      toProfileDocument(profile),
+    );
+    let insertedProfiles: Profile[] = [];
+
+    try {
+      await collection.insertMany(candidateDocuments, {
+        ordered: false,
+      });
+      insertedProfiles = insertCandidates;
+    } catch (error) {
+      if (!(error instanceof MongoBulkWriteError)) {
+        throw error;
+      }
+
+      const failedIndexes = new Set<number>();
+
+      for (const writeError of Object.values(error.writeErrors ?? {})) {
+        if (writeError.code !== 11000) {
+          throw error;
+        }
+
+        failedIndexes.add(writeError.err.index);
+      }
+
+      insertedProfiles = insertCandidates.filter(
+        (_profile, index) => !failedIndexes.has(index),
+      );
+    }
+
+    if (!options?.skipReadModelSync) {
+      this.profiles.addProfiles(insertedProfiles);
+    }
 
     return {
-      inserted: result.upsertedCount,
-      duplicates: profiles.length - result.upsertedCount,
+      inserted: insertedProfiles.length,
+      duplicates: profiles.length - insertedProfiles.length,
     };
   }
 

@@ -1,4 +1,5 @@
 import { v7 as uuidv7 } from "uuid";
+import { env } from "../config/env.js";
 import { db } from "./database.js";
 import { CsvImportSummary, Profile } from "../types/index.js";
 import { getAgeGroup, validateName } from "../utils/helpers.js";
@@ -23,8 +24,8 @@ const HEADER_ALIASES: Record<string, string> = {
   created_at: "created_at",
 };
 
-const BATCH_SIZE = 2_000;
-const YIELD_INTERVAL_ROWS = 1_000;
+const BATCH_SIZE = Math.max(1_000, env.INGESTION_BATCH_SIZE);
+const YIELD_INTERVAL_ROWS = Math.max(1_000, env.INGESTION_YIELD_INTERVAL);
 
 export class CsvImportValidationError extends Error {}
 
@@ -42,14 +43,18 @@ export async function importProfilesFromCsvStream(
   let headers: string[] | null = null;
   let validBatch: Profile[] = [];
   const seenNames = new Set<string>();
+  let insertedRows = 0;
 
   const flushBatch = async () => {
     if (validBatch.length === 0) {
       return;
     }
 
-    const { inserted, duplicates } = await db.bulkInsertProfiles(validBatch);
+    const { inserted, duplicates } = await db.bulkInsertProfiles(validBatch, {
+      skipReadModelSync: true,
+    });
     summary.inserted += inserted;
+    insertedRows += inserted;
 
     if (duplicates > 0) {
       summary.skipped += duplicates;
@@ -97,10 +102,16 @@ export async function importProfilesFromCsvStream(
     });
 
     await flushBatch();
+    if (insertedRows > 0) {
+      await db.rebuildProfileReadModel();
+    }
     await db.flush();
     return summary;
   } catch (error) {
     await flushBatch();
+    if (insertedRows > 0) {
+      await db.rebuildProfileReadModel();
+    }
     await db.flush();
 
     if (error instanceof CsvImportValidationError) {

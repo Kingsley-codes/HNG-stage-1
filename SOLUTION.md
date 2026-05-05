@@ -95,7 +95,8 @@ The ingestion path in [src/services/csvIngestion.ts](/c:/Users/USER/Documents/HN
 - parses CSV incrementally
 - avoids loading the entire file into memory
 - processes rows in batches
-- bulk writes to Mongo using upserts instead of row-by-row inserts
+- prefetches existing names once per batch
+- uses unordered `insertMany` for survivors instead of per-row upserts
 - skips invalid rows without failing the whole upload
 
 The admin endpoint remains:
@@ -105,9 +106,10 @@ The admin endpoint remains:
 ### Why this works for the task
 
 - Large files do not require full buffering in memory.
-- Batch upserts reduce write amplification and duplicate-check overhead.
+- One read plus one unordered insert per batch is much lighter than thousands of upsert operations.
 - Partial progress is preserved if an upload fails midway.
 - The event loop is periodically yielded during long imports so large uploads are less likely to starve read traffic.
+- Batch size and yield interval are tunable through env vars for more aggressive runs.
 
 ### Validation and failure handling
 
